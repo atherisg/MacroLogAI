@@ -1,0 +1,165 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - email: string (required, immutable)
+    //   - name: string (optional)
+    //   - age: number (optional)
+    //   - weight: number (optional)
+    //   - height: number (optional)
+    //   - fitnessGoal: string (optional)
+    //   - role: string (optional, default 'client')
+    //
+    // Collection: meals
+    // Document ID: {mealId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - description: string (required)
+    //   - calories: number (required)
+    //   - protein: number (optional)
+    //   - carbs: number (optional)
+    //   - fat: number (optional)
+    //   - timestamp: string (required, ISO 8601)
+    //
+    // Collection: metrics
+    // Document ID: {metricId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - weight: number (required)
+    //   - bmi: number (required)
+    //   - date: string (required, YYYY-MM-DD)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin') ||
+          (request.auth.token.get('email', '').lower() == "coolpro9978@gmail.com" && request.auth.token.get('email_verified', false) == true)
+        );
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isValidDateTimeString(dateTimeStr) {
+      return dateTimeStr is string && dateTimeStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.email is string && data.email.size() > 3 && data.email.size() < 256;
+    }
+
+    function isValidMeal(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 500 &&
+             data.calories is number && data.calories >= 0 &&
+             data.timestamp is string && isValidDateTimeString(data.timestamp);
+    }
+
+    function isValidMetric(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.weight is number && data.weight > 0 &&
+             data.bmi is number && data.bmi > 0 &&
+             data.date is string && isValidDateString(data.date);
+    }
+
+    function isValidSupplement(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100;
+    }
+
+    function isValidSupplementLog(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.supplementId is string &&
+             data.timestamp is string && isValidDateTimeString(data.timestamp) &&
+             data.date is string && isValidDateString(data.date);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /meals/{mealId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidMeal(request.resource.data);
+      allow update: if isDocOwner() && isValidMeal(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /metrics/{metricId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidMetric(request.resource.data);
+      allow update: if isDocOwner() && isValidMetric(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /supplements/{suppId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidSupplement(request.resource.data);
+      allow update: if isDocOwner() && isValidSupplement(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /supplementLogs/{logId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidSupplementLog(request.resource.data);
+      allow update: if isDocOwner() && isValidSupplementLog(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /pantry/{itemId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && 
+                      request.resource.data.name is string && request.resource.data.name.size() < 100;
+      allow update: if isDocOwner() && request.resource.data.name is string && request.resource.data.name.size() < 100 && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+  }
+}

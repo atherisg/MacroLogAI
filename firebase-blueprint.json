@@ -1,0 +1,155 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user physical metrics and fitness goals",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "age": { "type": "number" },
+        "gender": { "type": "string", "enum": ["male", "female", "other"] },
+        "height": { "type": "number", "description": "Height in cm" },
+        "weight": { "type": "number", "description": "Weight in kg" },
+        "activityLevel": { "type": "string", "enum": ["sedentary", "lightly_active", "moderately_active", "very_active"] },
+        "fitnessGoal": { "type": "string", "enum": ["lose_fat", "maintain", "build_muscle"] },
+        "nutritionMode": { "type": "string", "enum": ["auto", "manual"] },
+        "aiMacroOptimization": { "type": "boolean" },
+        "calorieTarget": { "type": "number" },
+        "proteinTarget": { "type": "number" },
+        "carbsTarget": { "type": "number" },
+        "fatTarget": { "type": "number" },
+        "theme": { "type": "string", "enum": ["dark", "light", "midnight", "forest", "ocean"] },
+        "accentColor": { "type": "string", "enum": ["neon-green", "blue", "purple", "orange", "red"] },
+        "dashboardWidgets": { "type": "array", "items": { "type": "string" } },
+        "notificationSettings": {
+          "type": "object",
+          "properties": {
+            "mealReminders": { "type": "boolean" },
+            "macroAlerts": { "type": "boolean" },
+            "supplementReminders": { "type": "boolean" },
+            "weeklyReports": { "type": "boolean" },
+            "streakReminders": { "type": "boolean" },
+            "reminderTime": { "type": "string" }
+          }
+        },
+        "privacy": {
+          "type": "object",
+          "properties": {
+            "isPrivate": { "type": "boolean" },
+            "leaderboardVisible": { "type": "boolean" },
+            "anonymousAnalytics": { "type": "boolean" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "animationsEnabled": { "type": "boolean" },
+            "soundsEnabled": { "type": "boolean" },
+            "aiSuggestionsEnabled": { "type": "boolean" },
+            "macroAlertsEnabled": { "type": "boolean" },
+            "streakNotificationsEnabled": { "type": "boolean" }
+          }
+        },
+        "role": { "type": "string", "enum": ["admin", "client"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "BodyMetric": {
+      "title": "Body Metric",
+      "description": "Historical record of body weight and BMI",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "weight": { "type": "number" },
+        "bmi": { "type": "number" },
+        "bodyFat": { "type": "number" },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["uid", "weight", "bmi", "date"]
+    },
+    "Meal": {
+      "title": "Meal Log",
+      "description": "A logged meal with estimated macros",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "description": { "type": "string" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "imageUrl": { "type": "string" },
+        "sourceType": { "type": "string", "enum": ["text", "image", "label"] }
+      },
+      "required": ["uid", "description", "calories", "timestamp", "sourceType"]
+    },
+    "PantryItem": {
+      "title": "Pantry Item",
+      "description": "An ingredient in the user's pantry",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name"]
+    },
+    "Supplement": {
+      "title": "Supplement",
+      "description": "A supplement definition",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "defaultDose": { "type": "string" },
+        "unit": { "type": "string" },
+        "reminderTime": { "type": "string" }
+      },
+      "required": ["uid", "name"]
+    },
+    "SupplementLog": {
+      "title": "Supplement Log",
+      "description": "A record of a supplement taken",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "supplementId": { "type": "string" },
+        "supplementName": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "date": { "type": "string", "description": "YYYY-MM-DD for streak tracking" }
+      },
+      "required": ["uid", "supplementId", "timestamp", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and settings"
+    },
+    "/meals/{mealId}": {
+      "schema": "Meal",
+      "description": "Logged meals"
+    },
+    "/pantry/{itemId}": {
+      "schema": "PantryItem",
+      "description": "User pantry ingredients"
+    },
+    "/supplements/{suppId}": {
+      "schema": "Supplement",
+      "description": "User custom supplements"
+    },
+    "/supplementLogs/{logId}": {
+      "schema": "SupplementLog",
+      "description": "Daily supplement intake logs"
+    },
+    "/metrics/{metricId}": {
+      "schema": "BodyMetric",
+      "description": "Historical body metrics"
+    }
+  }
+}
