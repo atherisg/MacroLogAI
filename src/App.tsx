@@ -53,6 +53,10 @@ export default function App() {
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined>(undefined);
   const profileRef = useRef<any>(null);
   const [logMode, setLogMode] = useState<'text' | 'image'>('text');
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setShowOverride(true), 4000);
@@ -302,15 +306,15 @@ export default function App() {
             </div>
           </header>
 
-          <main className="max-w-4xl mx-auto p-6">
+          <main className="max-w-5xl mx-auto p-6">
             <AnimatePresence mode="wait">
               <PageTransition key={currentView}>
-                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} onNavigate={setCurrentView} />}
+                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} onNavigate={setCurrentView} selectedDate={selectedDate} onDateChange={setSelectedDate} />}
                 {currentView === 'profile' && <Profile ref={profileRef} user={user} profile={profile} />}
                 {currentView === 'pantry' && <Pantry user={user} profile={profile!} />}
                 {currentView === 'supplements' && <Supplements user={user} profile={profile!} onUpgrade={() => setCurrentView('premium')} />}
-                {currentView === 'history' && <MealHistory user={user} />}
-                {currentView === 'log' && <LogMeal user={user} profile={profile!} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} onNavigate={setCurrentView} />}
+                {currentView === 'history' && <MealHistory user={user} onSelectDate={(date) => { setSelectedDate(date); setCurrentView('dashboard'); }} />}
+                {currentView === 'log' && <LogMeal user={user} profile={profile!} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} onNavigate={setCurrentView} initialDate={selectedDate} />}
                 {currentView === 'ai' && <AIAssistant user={user} profile={profile!} />}
                 {currentView === 'premium' && <Premium user={user} isPremium={!!profile?.isPremium} />}
               </PageTransition>

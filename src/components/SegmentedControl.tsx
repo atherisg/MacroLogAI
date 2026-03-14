@@ -15,7 +15,7 @@ export default function SegmentedControl({ options, value, onChange }: Segmented
           key={option.id}
           onClick={() => onChange(option.id)}
           className={clsx(
-            "flex-1 px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+            "flex-1 px-2 sm:px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap shrink-0",
             value === option.id 
               ? "bg-zinc-800 text-white shadow-sm" 
               : "text-zinc-500 hover:text-zinc-300"

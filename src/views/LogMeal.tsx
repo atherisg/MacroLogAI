@@ -26,17 +26,19 @@ import { clsx } from 'clsx';
 import ReactMarkdown from 'react-markdown';
 import { aggregateAminoAcids, calculateProteinUtilizationScore, convertAminoAcidsForPortion, calculateMPSTrigger } from '../services/aminoAcidService';
 import { calculateNutrientTargets } from '../services/nutrition';
+import { format } from 'date-fns';
 import AminoAcidRadarChart from '../components/AminoAcidRadarChart';
 import AminoAcidBarChart from '../components/AminoAcidBarChart';
 import PremiumLocked from '../components/PremiumLocked';
 import { hasPremiumAccess } from '../utils/premium';
 import { MicronutrientIntelligence } from '../components/MicronutrientIntelligence';
+import AlertModal from '../components/AlertModal';
 
 type LogState = 'INPUT' | 'ANALYZING_INPUT' | 'RENAME_SUGGESTED' | 'ESTIMATING_MACROS' | 'MACROS_ESTIMATED' | 'SAVING' | 'LOGGED';
 
 const MAX_IMAGES = 6;
 
-export default function LogMeal({ user, profile, onComplete, initialMealType, initialSourceType, onNavigate }: { user: User, profile: UserProfile, onComplete: () => void, initialMealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack', initialSourceType?: 'text' | 'image', onNavigate?: (view: any) => void }) {
+export default function LogMeal({ user, profile, onComplete, initialMealType, initialSourceType, onNavigate, initialDate }: { user: User, profile: UserProfile, onComplete: () => void, initialMealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack', initialSourceType?: 'text' | 'image', onNavigate?: (view: any) => void, initialDate?: string }) {
   const [logState, setLogState] = useState<LogState>('INPUT');
   const [description, setDescription] = useState('');
   const [originalName, setOriginalName] = useState('');
@@ -47,6 +49,7 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
   const [totalMacros, setTotalMacros] = useState<MacroEstimation>({ calories: 0, protein: 0, carbs: 0, fat: 0 });
   const [confidenceScore, setConfidenceScore] = useState<number | undefined>(undefined);
   const [renameFeedback, setRenameFeedback] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate || format(new Date(), 'yyyy-MM-dd'));
   
   const [aminoAcidTotals, setAminoAcidTotals] = useState<AminoAcidProfile | undefined>(undefined);
   const [utilizationScore, setUtilizationScore] = useState<{ score: number, limitingAA: string } | undefined>(undefined);
@@ -64,6 +67,12 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
   const [loadingMessage, setLoadingMessage] = useState('');
   const [mealType, setMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>(initialMealType || 'snack');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean; title: string; message: string; variant: 'info' | 'success' | 'error' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'info'
+  });
   const { playSuccess, playError, playClick } = useAppSound();
 
   useEffect(() => {
@@ -103,7 +112,12 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
     const filesToProcess = files.slice(0, remainingSlots);
 
     if (files.length > remainingSlots) {
-      alert(`You can only upload up to ${MAX_IMAGES} images.`);
+      setAlertConfig({
+        isOpen: true,
+        title: 'Upload Limit',
+        message: `You can only upload up to ${MAX_IMAGES} images.`,
+        variant: 'info'
+      });
     }
 
     filesToProcess.forEach(file => {
@@ -330,6 +344,7 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
         sourceType,
         mealType,
         timestamp: new Date().toISOString(),
+        log_date: selectedDate,
         // Amino Acid Intelligence fields
         aminoAcidTotals: aminoAcidTotals || null,
         proteinUtilizationScore: utilizationScore?.score || null,
@@ -385,9 +400,20 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
 
   return (
     <div className="space-y-8">
-      <div className="space-y-2">
-        <h2 className="text-3xl font-black italic uppercase tracking-tighter text-primary">Log Meal</h2>
-        <p className="text-zinc-500 text-sm">Choose your logging method. AI will analyze and estimate.</p>
+      <div className="flex justify-between items-end">
+        <div className="space-y-2">
+          <h2 className="text-3xl font-black italic uppercase tracking-tighter text-primary">Log Meal</h2>
+          <p className="text-zinc-500 text-sm">Choose your logging method. AI will analyze and estimate.</p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Date</label>
+          <input 
+            type="date" 
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm font-medium text-white focus:outline-none focus:border-primary"
+          />
+        </div>
       </div>
 
       {logState === 'INPUT' && (
@@ -813,6 +839,19 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
                   intake={micronutrientTotals} 
                   targets={calculateNutrientTargets(profile)} 
                   isPremium={true} 
+                  meals={[{
+                    uid: user.uid,
+                    description: finalName || 'Current Meal',
+                    calories: totalMacros.calories,
+                    protein: totalMacros.protein,
+                    carbs: totalMacros.carbs,
+                    fat: totalMacros.fat,
+                    mealType: mealType,
+                    timestamp: new Date().toISOString(),
+                    log_date: selectedDate,
+                    micronutrients: micronutrientTotals,
+                    sourceType: sourceType
+                  }]}
                 />
                 
                 {microInsights && (
@@ -849,6 +888,14 @@ export default function LogMeal({ user, profile, onComplete, initialMealType, in
           </div>
         </motion.div>
       )}
+
+      <AlertModal
+        isOpen={alertConfig.isOpen}
+        onClose={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        variant={alertConfig.variant}
+      />
     </div>
   );
 }

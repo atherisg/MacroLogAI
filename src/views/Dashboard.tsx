@@ -5,7 +5,7 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserProfile, Meal, QuickMeal, WeeklyReport, Recipe, MacroEstimation, WaterLog, MicronutrientProfile } from '../types';
 import { calculateDietScore } from '../utils/dietScore';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Zap, Plus, Sparkles, Repeat, BarChart3, Flame, Loader2, ChevronRight, Save, Check, Trash2, Lock, Droplets, Shield } from 'lucide-react';
+import { Zap, Plus, Minus, Sparkles, Repeat, BarChart3, Flame, Loader2, ChevronRight, Save, Check, Trash2, Lock, Droplets, Shield } from 'lucide-react';
 import { format, subDays, isBefore, startOfDay, endOfDay, differenceInDays, startOfWeek, endOfWeek, isSameDay, addDays } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import AnimatedNumber from '../components/AnimatedNumber';
@@ -14,6 +14,7 @@ import { useAppSound } from '../components/SoundProvider';
 import { clsx } from 'clsx';
 import { DietScoreWidget } from '../components/DietScoreWidget';
 import { StreakCalendar } from '../components/StreakCalendar';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { getMealSuggestions, getWeeklyInsights } from '../services/gemini';
 import { addDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import AminoAcidCoverage from '../components/AminoAcidCoverage';
@@ -24,8 +25,11 @@ import { analyzeProteinDistribution } from '../services/aminoAcidService';
 import { HydrationTracker } from '../components/HydrationTracker';
 import { MicronutrientIntelligence } from '../components/MicronutrientIntelligence';
 import { calculateHydrationTarget, calculateNutrientTargets } from '../services/nutrition';
+import { getMealColor } from '../utils/colors';
+import { SegmentedProgressBar } from '../components/SegmentedProgressBar';
+import ConfirmModal from '../components/ConfirmModal';
 
-export default function Dashboard({ user, profile, onAddFood, onNavigate }: { user: User, profile: UserProfile, onAddFood?: (mealType: string) => void, onNavigate?: (view: any) => void }) {
+export default function Dashboard({ user, profile, onAddFood, onNavigate, selectedDate, onDateChange }: { user: User, profile: UserProfile, onAddFood?: (mealType: string) => void, onNavigate?: (view: any) => void, selectedDate: string, onDateChange: (date: string) => void }) {
   const [todayMeals, setTodayMeals] = useState<Meal[]>([]);
   const [quickMeals, setQuickMeals] = useState<QuickMeal[]>([]);
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
@@ -35,9 +39,12 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
   const [savingRecipeIdx, setSavingRecipeIdx] = useState<number | null>(null);
   const [dailyInsights, setDailyInsights] = useState<DailyNutritionInsights | null>(null);
   const [todayWaterLogs, setTodayWaterLogs] = useState<WaterLog[]>([]);
+  const [mealToDelete, setMealToDelete] = useState<string | null>(null);
   
-  const { playReward } = useAppSound();
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const { playReward, playClick } = useAppSound();
+  const today = selectedDate; // Use selectedDate instead of current date
+  const actualToday = format(new Date(), 'yyyy-MM-dd');
+  const isToday = today === actualToday;
 
   useEffect(() => {
     const checkAndUpdateStreak = async () => {
@@ -139,10 +146,8 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
       (err) => console.error("Weekly report fetch failed:", err)
     );
 
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
     const unsubWater = onSnapshot(
-      query(collection(db, 'water_logs'), where('uid', '==', user.uid), where('timestamp', '>=', start.toISOString())),
+      query(collection(db, 'water_logs'), where('uid', '==', user.uid), where('date', '==', selectedDate)),
       (snap) => setTodayWaterLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as WaterLog))),
       (err) => console.error("Water logs fetch failed:", err)
     );
@@ -152,7 +157,7 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
       unsubReport();
       unsubWater();
     };
-  }, [user.uid]);
+  }, [user.uid, selectedDate]);
 
   // Fetch Weekly Scores for Heatmap
   useEffect(() => {
@@ -341,18 +346,17 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
   }, [user.uid, weeklyReport, profile]);
 
   useEffect(() => {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    
     const q = query(
       collection(db, 'meals'),
       where('uid', '==', user.uid),
-      where('timestamp', '>=', startOfDay.toISOString()),
-      orderBy('timestamp', 'desc')
+      where('log_date', '==', selectedDate)
     );
 
     const unsubMeals = onSnapshot(q, (snap) => {
-      setTodayMeals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Meal)));
+      // Sort in memory since we are querying by log_date
+      const meals = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Meal));
+      meals.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setTodayMeals(meals);
     }, (error) => {
       console.error("Meals fetch failed:", error);
     });
@@ -360,13 +364,13 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
     return () => {
       unsubMeals();
     };
-  }, [user.uid]);
+  }, [user.uid, selectedDate]);
 
   useEffect(() => {
     const q = query(
       collection(db, 'daily_nutrition_insights'),
       where('uid', '==', user.uid),
-      where('date', '==', today)
+      where('date', '==', selectedDate)
     );
 
     const unsub = onSnapshot(q, (snap) => {
@@ -381,7 +385,7 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
     });
 
     return () => unsub();
-  }, [user.uid, today]);
+  }, [user.uid, selectedDate]);
 
   useEffect(() => {
     if (!hasPremiumAccess(profile) || todayMeals.length === 0) return;
@@ -392,13 +396,13 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
       const q = query(
         collection(db, 'daily_nutrition_insights'),
         where('uid', '==', user.uid),
-        where('date', '==', today)
+        where('date', '==', selectedDate)
       );
       
       const snap = await getDocs(q);
       const insightData = {
         uid: user.uid,
-        date: today,
+        date: selectedDate,
         proteinDistributionInsight: distribution.insight,
         proteinDistributionRecommendation: distribution.recommendation,
         mealProteinValues: distribution.values,
@@ -422,7 +426,7 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
 
     const timer = setTimeout(updateDailyInsights, 2000); // Debounce updates
     return () => clearTimeout(timer);
-  }, [user.uid, todayMeals, profile, today]);
+  }, [user.uid, todayMeals, profile, selectedDate]);
 
   const totals = todayMeals.reduce((acc, meal) => ({
     calories: acc.calories + meal.calories,
@@ -539,6 +543,15 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
     snack: todayMeals.filter(m => categorizeMeal(m) === 'snack'),
   };
 
+  const handleDeleteMeal = async (mealId: string) => {
+    try {
+      await deleteDoc(doc(db, 'meals', mealId));
+      playClick();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'meals');
+    }
+  };
+
   const MealSection = ({ title, type, meals }: { title: string, type: string, meals: Meal[] }) => (
     <div className="bg-zinc-900/30 border border-zinc-800/50 rounded-3xl overflow-hidden">
       <div className="p-4 flex justify-between items-center border-b border-zinc-800/50 bg-zinc-900/50">
@@ -558,15 +571,23 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
         ) : (
           <div className="space-y-1">
             {meals.map(meal => (
-              <div key={meal.id} className="p-3 bg-zinc-800/20 hover:bg-zinc-800/40 transition-colors rounded-2xl flex justify-between items-center">
-                <div>
+              <div key={meal.id} className="p-3 bg-zinc-800/20 hover:bg-zinc-800/40 transition-colors rounded-2xl flex justify-between items-center group">
+                <div className="flex-1">
                   <p className="font-bold text-sm">{meal.description}</p>
                   <p className="text-[10px] text-zinc-500 uppercase font-mono mt-1">
                     {meal.calories}kcal • P:{meal.protein}g • C:{meal.carbs}g • F:{meal.fat}g
                   </p>
                 </div>
-                <div className="text-xs text-zinc-600 font-mono">
-                  {format(new Date(meal.timestamp), 'h:mm a')}
+                <div className="flex items-center gap-3">
+                  <div className="text-[10px] text-zinc-600 font-mono">
+                    {format(new Date(meal.timestamp), 'h:mm a')}
+                  </div>
+                  <button 
+                    onClick={() => setMealToDelete(meal.id!)}
+                    className="p-2 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -707,14 +728,14 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
     }
   };
 
-  const handleLogWater = async (amount: number, source: 'water' | 'drink' | 'food') => {
+  const handleLogWater = async (amount: number, source: 'water') => {
     try {
       await addDoc(collection(db, 'water_logs'), {
         uid: user.uid,
         amountMl: amount,
         source,
         timestamp: new Date().toISOString(),
-        date: format(new Date(), 'yyyy-MM-dd')
+        date: selectedDate
       });
       playReward();
     } catch (err) {
@@ -734,6 +755,37 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
 
   return (
     <div className="space-y-8 pb-10">
+      <div className="flex items-center justify-between bg-zinc-900/50 p-3 rounded-2xl border border-zinc-800/50">
+        <button 
+          onClick={() => onDateChange(format(subDays(new Date(selectedDate + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
+          className="p-2 rounded-xl hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white"
+        >
+          <ChevronRight size={20} className="rotate-180" />
+        </button>
+        
+        <div className="flex flex-col items-center">
+          <span className="text-sm font-bold uppercase tracking-widest text-primary">
+            {isToday ? 'Today' : format(new Date(selectedDate + 'T00:00:00'), 'MMM d, yyyy')}
+          </span>
+          {!isToday && (
+            <button 
+              onClick={() => onDateChange(actualToday)}
+              className="text-[10px] text-zinc-500 hover:text-white uppercase tracking-widest mt-1"
+            >
+              Back to Today
+            </button>
+          )}
+        </div>
+
+        <button 
+          onClick={() => onDateChange(format(addDays(new Date(selectedDate + 'T00:00:00'), 1), 'yyyy-MM-dd'))}
+          disabled={isToday}
+          className="p-2 rounded-xl hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronRight size={20} />
+        </button>
+      </div>
+
       <div className="flex items-center justify-between px-2">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center text-primary">
@@ -759,38 +811,40 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
         )}
       </div>
 
-      <DietScoreWidget
-        actualProtein={totals.protein}
-        targetProtein={profile.proteinTarget}
-        actualCarbs={totals.carbs}
-        targetCarbs={profile.carbsTarget}
-        actualFat={totals.fat}
-        targetFat={profile.fatTarget}
-        actualCalories={totals.calories}
-        targetCalories={profile.calorieTarget}
-        currentStreakDays={profile.currentStreakDays || 0}
-        longestStreak={profile.longestStreak || 0}
-      />
-
-      <StreakCalendar scores={weeklyScores} />
-
-      {/* Hydration Tracker */}
-      <div className="mt-8 px-2">
-        <HydrationTracker 
-          current={totalWater} 
-          target={hydrationTarget} 
-          onLog={handleLogWater} 
-          isPremium={hasPremiumAccess(profile)} 
+      <CollapsibleSection title="Daily Performance" icon={BarChart3}>
+        <DietScoreWidget
+          actualProtein={totals.protein}
+          targetProtein={profile.proteinTarget}
+          actualCarbs={totals.carbs}
+          targetCarbs={profile.carbsTarget}
+          actualFat={totals.fat}
+          targetFat={profile.fatTarget}
+          actualCalories={totals.calories}
+          targetCalories={profile.calorieTarget}
+          currentStreakDays={profile.currentStreakDays || 0}
+          longestStreak={profile.longestStreak || 0}
         />
-      </div>
+      </CollapsibleSection>
 
-      {/* Smart Meal Suggestions */}
-      <div className="space-y-4 mt-8">
-        <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="text-primary" size={16} />
-            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Smart Meal Suggestions</h3>
-          </div>
+      <CollapsibleSection title="Consistency" icon={Flame}>
+        <StreakCalendar scores={weeklyScores} />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Hydration" icon={Droplets}>
+        <div className="px-2">
+          <HydrationTracker 
+            current={totalWater} 
+            target={hydrationTarget} 
+            onLog={handleLogWater} 
+            isPremium={hasPremiumAccess(profile)} 
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection 
+        title="Smart Meal Suggestions" 
+        icon={Sparkles}
+        headerRight={
           <button 
             onClick={handleGetSuggestions}
             disabled={loadingSuggestions}
@@ -799,8 +853,8 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
             {loadingSuggestions ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
             {suggestions.length > 0 ? 'Refresh' : 'Get Suggestions'}
           </button>
-        </div>
-        
+        }
+      >
         {suggestions.length > 0 ? (
           <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
             {suggestions.map((s, i) => (
@@ -851,34 +905,33 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
             ))}
           </div>
         ) : (
-          <div className="bg-zinc-900/30 border border-zinc-800 border-dashed rounded-3xl p-8 text-center space-y-2">
+          <div className="bg-zinc-900/30 border border-zinc-800 border-dashed rounded-3xl p-8 text-center space-y-2 mx-2">
             <p className="text-xs text-zinc-500 italic">"{getAIInsight()}"</p>
           </div>
         )}
 
         {suggestions.length > 0 && getAIInsight() && (
-          <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3 mx-2">
+          <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3 mx-2 mt-4">
             <Sparkles size={16} className="text-primary shrink-0 mt-1" />
             <p className="text-xs text-zinc-400 leading-relaxed italic">
               {getAIInsight()}
             </p>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      {/* Quick Meals */}
-      <div className="space-y-4 mt-8">
-        <div className="flex items-center justify-between px-2">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Quick Meals</h3>
+      <CollapsibleSection 
+        title="Quick Meals" 
+        headerRight={
           <button 
             onClick={handleRepeatYesterday}
             className="text-zinc-400 text-[10px] font-bold uppercase flex items-center gap-1 hover:text-white transition-colors"
           >
             <Repeat size={12} /> Repeat Yesterday
           </button>
-        </div>
-        
-        <div className="grid grid-cols-1 gap-3">
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 px-2">
           {quickMeals.slice(0, 3).map(meal => (
             <div key={meal.id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex justify-between items-center group">
               <div>
@@ -899,16 +952,14 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
             <p className="text-center text-[10px] text-zinc-600 uppercase py-4">Log meals regularly to see quick repeats here.</p>
           )}
         </div>
-      </div>
+      </CollapsibleSection>
 
-      {/* Weekly Report */}
       {weeklyReport && (
-        <div className="space-y-4 mt-8">
-          <div className="flex items-center justify-between px-2">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Weekly Nutrition Report</h3>
-            <span className="text-[10px] font-bold text-zinc-600 uppercase">{weeklyReport.startDate} - {weeklyReport.endDate}</span>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-[2.5rem] p-6 space-y-6">
+        <CollapsibleSection 
+          title="Weekly Nutrition Report" 
+          headerRight={<span className="text-[10px] font-bold text-zinc-600 uppercase">{weeklyReport.startDate} - {weeklyReport.endDate}</span>}
+        >
+          <div className="bg-zinc-900 border border-zinc-800 rounded-[2.5rem] p-6 space-y-6 mx-2">
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-1">
                 <p className="text-[10px] font-bold uppercase text-zinc-500">Avg Calories</p>
@@ -953,35 +1004,51 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
               </div>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* Daily Nutrition Summary */}
-      <div className="space-y-4 mt-8">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 px-2">Daily Nutrition</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <CollapsibleSection title="Daily Nutrition">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-2">
           <CircularProgress label="Calories" value={totals.calories} target={profile.calorieTarget} unit="kcal" color="#82D95D" />
           <CircularProgress label="Protein" value={totals.protein} target={profile.proteinTarget} unit="g" color="#4ade80" precision={1} />
           <CircularProgress label="Carbs" value={totals.carbs} target={profile.carbsTarget} unit="g" color="#38bdf8" precision={1} />
           <CircularProgress label="Fat" value={totals.fat} target={profile.fatTarget} unit="g" color="#fbbf24" precision={1} />
         </div>
-      </div>
-
-      {/* Premium Smart Protein Distribution */}
-      <div className="space-y-4 mt-8">
-        <div className="flex items-center gap-2 px-2">
-          <BarChart3 className="text-primary" size={16} />
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Smart Protein Distribution</h3>
-        </div>
         
-        {!hasPremiumAccess(profile) ? (
-          <PremiumLocked 
-            title="Smart Protein Distribution"
-            message="Analyze your protein intake timing and get personalized recommendations for muscle growth."
-            onUpgrade={() => onNavigate?.('premium')}
+        <div className="mt-8 space-y-6 px-2">
+          <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-4">Nutrient Breakdown by Meal</h4>
+          <SegmentedProgressBar 
+            label="Protein" 
+            unit="g" 
+            target={profile.proteinTarget} 
+            segments={todayMeals.map((m, i) => ({ name: m.description, value: m.protein, color: getMealColor(i) }))} 
           />
+          <SegmentedProgressBar 
+            label="Carbohydrates" 
+            unit="g" 
+            target={profile.carbsTarget} 
+            segments={todayMeals.map((m, i) => ({ name: m.description, value: m.carbs, color: getMealColor(i) }))} 
+          />
+          <SegmentedProgressBar 
+            label="Fat" 
+            unit="g" 
+            target={profile.fatTarget} 
+            segments={todayMeals.map((m, i) => ({ name: m.description, value: m.fat, color: getMealColor(i) }))} 
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Smart Protein Distribution" icon={BarChart3}>
+        {!hasPremiumAccess(profile) ? (
+          <div className="px-2">
+            <PremiumLocked 
+              title="Smart Protein Distribution"
+              message="Analyze your protein intake timing and get personalized recommendations for muscle growth."
+              onUpgrade={() => onNavigate?.('premium')}
+            />
+          </div>
         ) : dailyInsights ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-6 space-y-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-6 space-y-6 mx-2">
             <div className="grid grid-cols-4 gap-2">
               {['breakfast', 'lunch', 'dinner', 'snack'].map(type => (
                 <div key={type} className="space-y-2">
@@ -1017,64 +1084,68 @@ export default function Dashboard({ user, profile, onAddFood, onNavigate }: { us
             </div>
           </div>
         ) : (
-          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center">
+          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center mx-2">
             <p className="text-zinc-500 text-xs italic">Log your meals to see your protein distribution analysis.</p>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      {/* Premium Amino Acid Coverage */}
-      <div className="space-y-4 mt-8">
-        <div className="flex items-center gap-2 px-2">
-          <Zap className="text-primary" size={16} />
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Amino Acid Coverage</h3>
-        </div>
+      <CollapsibleSection title="Amino Acid Coverage" icon={Zap}>
         {!hasPremiumAccess(profile) ? (
-          <PremiumLocked 
-            title="Amino Acid Coverage"
-            message="Track your daily essential amino acid intake and identify potential deficiencies."
-            onUpgrade={() => onNavigate?.('premium')}
-          />
+          <div className="px-2">
+            <PremiumLocked 
+              title="Amino Acid Coverage"
+              message="Track your daily essential amino acid intake and identify potential deficiencies."
+              onUpgrade={() => onNavigate?.('premium')}
+            />
+          </div>
         ) : Object.keys(dailyAminoAcids).length > 0 ? (
-          <AminoAcidCoverage profile={dailyAminoAcids} weightKg={profile.weight || 70} />
+          <div className="px-2">
+            <AminoAcidCoverage profile={dailyAminoAcids} weightKg={profile.weight || 70} />
+          </div>
         ) : (
-          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center">
+          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center mx-2">
             <p className="text-zinc-500 text-xs italic">Log meals with protein to see your amino acid coverage.</p>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      {/* Premium Micronutrient Intelligence */}
-      <div className="space-y-4 mt-8 px-2">
-        <div className="flex items-center gap-2">
-          <Shield className="text-primary" size={16} />
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Micronutrient Intelligence</h3>
+      <CollapsibleSection title="Micronutrient Intelligence" icon={Shield}>
+        <div className="px-2">
+          <MicronutrientIntelligence 
+            intake={dailyMicronutrients} 
+            targets={micronutrientTargets} 
+            isPremium={hasPremiumAccess(profile)} 
+            meals={todayMeals}
+          />
+          {hasPremiumAccess(profile) && dailyInsights?.micronutrientInsights && (
+            <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3 mt-4">
+              <Sparkles size={16} className="text-primary shrink-0 mt-1" />
+              <p className="text-xs text-zinc-400 leading-relaxed italic">
+                {dailyInsights.micronutrientInsights}
+              </p>
+            </div>
+          )}
         </div>
-        <MicronutrientIntelligence 
-          intake={dailyMicronutrients} 
-          targets={micronutrientTargets} 
-          isPremium={hasPremiumAccess(profile)} 
-        />
-        {hasPremiumAccess(profile) && dailyInsights?.micronutrientInsights && (
-          <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3">
-            <Sparkles size={16} className="text-primary shrink-0 mt-1" />
-            <p className="text-xs text-zinc-400 leading-relaxed italic">
-              {dailyInsights.micronutrientInsights}
-            </p>
-          </div>
-        )}
-      </div>
+      </CollapsibleSection>
 
-      {/* Today's Meals */}
-      <div className="space-y-4 mt-8">
-        <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 px-2">Today's Meals</h3>
-        <div className="space-y-4">
+      <CollapsibleSection title="Today's Meals">
+        <div className="space-y-4 px-2">
           <MealSection title="Breakfast" type="breakfast" meals={mealsByCategory.breakfast} />
           <MealSection title="Lunch" type="lunch" meals={mealsByCategory.lunch} />
           <MealSection title="Dinner" type="dinner" meals={mealsByCategory.dinner} />
           <MealSection title="Snacks" type="snack" meals={mealsByCategory.snack} />
         </div>
-      </div>
+      </CollapsibleSection>
+      <ConfirmModal
+        isOpen={!!mealToDelete}
+        onClose={() => setMealToDelete(null)}
+        onConfirm={() => mealToDelete && handleDeleteMeal(mealToDelete)}
+        title="Delete Meal"
+        message="Are you sure you want to remove this meal from your log? This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

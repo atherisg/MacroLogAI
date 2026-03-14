@@ -6,14 +6,16 @@ import MealEditModal from '../components/MealEditModal';
 import { Meal } from '../types';
 import { format, parseISO, isToday, isYesterday } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Utensils, Edit2 } from 'lucide-react';
+import { Trash2, Utensils, Edit2, ChevronDown, ChevronUp, LayoutDashboard } from 'lucide-react';
 import { useAppSound } from '../components/SoundProvider';
+import ConfirmModal from '../components/ConfirmModal';
 
-export default function MealHistory({ user }: { user: User }) {
+export default function MealHistory({ user, onSelectDate }: { user: User, onSelectDate?: (date: string) => void }) {
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const { playClick, playSuccess, playError } = useAppSound();
+  const [mealToDelete, setMealToDelete] = useState<string | null>(null);
+  const { playClick } = useAppSound();
 
   useEffect(() => {
     const q = query(
@@ -29,166 +31,191 @@ export default function MealHistory({ user }: { user: User }) {
     });
   }, [user.uid]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (mealId: string) => {
     try {
+      await deleteDoc(doc(db, 'meals', mealId));
       playClick();
-      await deleteDoc(doc(db, 'meals', id));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'meals/' + id);
-      playError();
+      handleFirestoreError(error, OperationType.DELETE, 'meals');
     }
   };
 
-  const handleEdit = (meal: Meal) => {
-    setEditingMeal(meal);
-    setIsEditModalOpen(true);
-    playClick();
-  };
-
   const handleSaveEdit = async (updatedMeal: Meal) => {
-    if (!updatedMeal.id) return;
     try {
-      const mealRef = doc(db, 'meals', updatedMeal.id);
+      const mealRef = doc(db, 'meals', updatedMeal.id!);
       await updateDoc(mealRef, {
         description: updatedMeal.description,
         calories: updatedMeal.calories,
         protein: updatedMeal.protein,
         carbs: updatedMeal.carbs,
-        fat: updatedMeal.fat
+        fat: updatedMeal.fat,
       });
-      playSuccess();
-      setIsEditModalOpen(false);
       setEditingMeal(null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, 'meals');
-      playError();
+      playClick();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'meals');
     }
   };
 
   const groupedMeals = meals.reduce((acc, meal) => {
-    const date = format(parseISO(meal.timestamp), 'yyyy-MM-dd');
+    const date = meal.log_date || format(parseISO(meal.timestamp), 'yyyy-MM-dd');
     if (!acc[date]) acc[date] = [];
     acc[date].push(meal);
     return acc;
   }, {} as Record<string, Meal[]>);
 
+  // Sort dates descending
+  const sortedDates = Object.keys(groupedMeals).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
   const getDateLabel = (dateStr: string) => {
-    const date = parseISO(dateStr);
+    const date = new Date(dateStr + 'T00:00:00');
     if (isToday(date)) return 'Today';
     if (isYesterday(date)) return 'Yesterday';
     return format(date, 'EEEE, MMM d');
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-10">
       <div className="space-y-2">
         <h2 className="text-3xl font-black italic uppercase tracking-tighter text-primary">History</h2>
-        <p className="text-zinc-500 text-sm">Review your past meals and macro trends.</p>
+        <p className="text-zinc-500 text-sm">Review your daily nutrition summaries.</p>
       </div>
 
-      <div className="space-y-10">
-        {Object.entries(groupedMeals).map(([date, dayMeals]) => {
+      <div className="space-y-4">
+        {sortedDates.map((date) => {
+          const dayMeals = groupedMeals[date];
           const dayTotals = dayMeals.reduce((acc, m) => ({
             calories: acc.calories + m.calories,
             protein: acc.protein + m.protein,
             carbs: acc.carbs + m.carbs,
             fat: acc.fat + m.fat
           }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+          const isExpanded = expandedDate === date;
 
           return (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              key={date} 
-              className="space-y-4"
-            >
-              <div className="flex justify-between items-end border-b border-zinc-900 pb-2">
-                <h3 className="font-black italic uppercase text-lg text-primary">{getDateLabel(date)}</h3>
-                <div className="text-right">
-                  <p className="text-[10px] font-bold uppercase text-zinc-500">Daily Total</p>
-                  <p className="text-sm font-bold">{Math.round(dayTotals.calories)} kcal</p>
+            <div key={date} className="bg-zinc-900/50 rounded-3xl border border-zinc-800/50 overflow-hidden transition-all">
+              <button 
+                onClick={() => {
+                  playClick();
+                  setExpandedDate(isExpanded ? null : date);
+                }}
+                className="w-full text-left p-5 hover:bg-zinc-800/30 transition-colors group flex flex-col"
+              >
+                <div className="flex justify-between items-center mb-4 w-full">
+                  <h3 className="text-lg font-black italic uppercase tracking-tight group-hover:text-primary transition-colors">
+                    {getDateLabel(date)}
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-zinc-500 bg-zinc-800 px-2 py-1 rounded-md">
+                      {dayMeals.length} {dayMeals.length === 1 ? 'Meal' : 'Meals'}
+                    </span>
+                    {isExpanded ? <ChevronUp size={20} className="text-zinc-500" /> : <ChevronDown size={20} className="text-zinc-500" />}
+                  </div>
                 </div>
-              </div>
+                
+                <div className="grid grid-cols-4 gap-2 w-full">
+                  <div className="bg-zinc-800/50 p-3 rounded-2xl flex flex-col items-center justify-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">Cals</span>
+                    <span className="text-sm font-black">{Math.round(dayTotals.calories)}</span>
+                  </div>
+                  <div className="bg-zinc-800/50 p-3 rounded-2xl flex flex-col items-center justify-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-1">Pro</span>
+                    <span className="text-sm font-black">{Math.round(dayTotals.protein)}g</span>
+                  </div>
+                  <div className="bg-zinc-800/50 p-3 rounded-2xl flex flex-col items-center justify-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-green-500 mb-1">Carb</span>
+                    <span className="text-sm font-black">{Math.round(dayTotals.carbs)}g</span>
+                  </div>
+                  <div className="bg-zinc-800/50 p-3 rounded-2xl flex flex-col items-center justify-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-1">Fat</span>
+                    <span className="text-sm font-black">{Math.round(dayTotals.fat)}g</span>
+                  </div>
+                </div>
+              </button>
 
-              <div className="space-y-3">
-                <AnimatePresence mode="popLayout">
-                  {dayMeals.map(meal => (
-                    <motion.div 
-                      layout
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20, scale: 0.95 }}
-                      key={meal.id} 
-                      className="group bg-zinc-900/30 border border-zinc-800/50 p-4 rounded-2xl flex items-center gap-4 hover:border-zinc-700 transition-all"
-                    >
-                      {meal.imageUrl ? (
-                        <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0">
-                          <img src={meal.imageUrl} alt={meal.description} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        </div>
-                      ) : (
-                        <div className="w-16 h-16 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 flex-shrink-0">
-                          <Utensils size={24} />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-bold text-sm">{meal.description}</p>
-                            <span className="text-[8px] font-bold uppercase text-zinc-600 tracking-widest">{meal.sourceType} log</span>
-                          </div>
-                        </div>
-                        <div className="mt-2 flex justify-between items-end">
-                          <div className="flex gap-4">
-                            <div className="text-center">
-                              <p className="text-[8px] font-bold uppercase text-zinc-500">Cals</p>
-                              <p className="text-xs font-bold">{meal.calories}</p>
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="border-t border-zinc-800/50 bg-zinc-900/30"
+                  >
+                    <div className="p-5 space-y-3">
+                      {dayMeals.map((meal) => (
+                        <div key={meal.id} className="flex items-center justify-between bg-zinc-800/30 p-4 rounded-2xl border border-zinc-800/50">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-400">
+                              <Utensils size={18} />
                             </div>
-                            <div className="text-center">
-                              <p className="text-[8px] font-bold uppercase text-zinc-500">Prot</p>
-                              <p className="text-xs font-bold text-[#82D95D]">{meal.protein}g</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[8px] font-bold uppercase text-zinc-500">Carb</p>
-                              <p className="text-xs font-bold text-[#4ade80]">{meal.carbs}g</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[8px] font-bold uppercase text-zinc-500">Fat</p>
-                              <p className="text-xs font-bold text-[#22c55e]">{meal.fat}g</p>
+                            <div>
+                              <p className="font-bold text-sm">{meal.description}</p>
+                              <p className="text-[10px] text-zinc-500 uppercase font-mono mt-1">
+                                {meal.calories}kcal • P:{meal.protein}g • C:{meal.carbs}g • F:{meal.fat}g
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-zinc-600 font-mono">{format(parseISO(meal.timestamp), 'h:mm a')}</span>
-                            <button 
-                              onClick={() => handleEdit(meal)}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-primary transition-all"
+                            <button
+                              onClick={() => setEditingMeal(meal)}
+                              className="p-2 text-zinc-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-xl transition-colors"
                             >
-                              <Edit2 size={14} />
+                              <Edit2 size={16} />
                             </button>
-                            <button 
-                              onClick={() => meal.id && handleDelete(meal.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all"
+                            <button
+                              onClick={() => setMealToDelete(meal.id!)}
+                              className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
-            </motion.div>
+                      ))}
+                      
+                      {onSelectDate && (
+                        <button
+                          onClick={() => {
+                            playClick();
+                            onSelectDate(date);
+                          }}
+                          className="w-full mt-4 py-3 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors"
+                        >
+                          <LayoutDashboard size={16} />
+                          View Full Dashboard
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           );
         })}
+        {sortedDates.length === 0 && (
+          <div className="text-center py-10 text-zinc-500">
+            <p>No meals logged yet.</p>
+          </div>
+        )}
       </div>
-      {isEditModalOpen && editingMeal && (
+
+      {editingMeal && (
         <MealEditModal
-          isOpen={isEditModalOpen}
-          onClose={() => setIsEditModalOpen(false)}
+          isOpen={!!editingMeal}
+          onClose={() => setEditingMeal(null)}
           onSave={handleSaveEdit}
           meal={editingMeal}
         />
       )}
+
+      <ConfirmModal
+        isOpen={!!mealToDelete}
+        onClose={() => setMealToDelete(null)}
+        onConfirm={() => mealToDelete && handleDelete(mealToDelete)}
+        title="Delete Meal"
+        message="Are you sure you want to remove this meal from your history? This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

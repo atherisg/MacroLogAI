@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Droplets, Plus, Minus, GlassWater, Coffee, Apple } from 'lucide-react';
+import { Droplets, Plus, Minus } from 'lucide-react';
 import { motion } from 'motion/react';
-import { WaterLog } from '../types';
 
 interface HydrationTrackerProps {
   current: number;
   target: number;
-  onLog: (amount: number, source: 'water' | 'drink' | 'food') => void;
+  onLog: (amount: number, source: 'water') => void;
   isPremium: boolean;
 }
 
@@ -51,35 +50,35 @@ export const HydrationTracker: React.FC<HydrationTrackerProps> = ({ current, tar
         </div>
       </div>
 
-      <div className="relative h-4 bg-zinc-800 rounded-full overflow-hidden">
+      <div className="relative h-6 bg-zinc-800 rounded-full overflow-hidden">
         <motion.div 
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)]"
-        />
+          className="absolute inset-y-0 left-0 bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] flex items-center"
+        >
+          <motion.div 
+            animate={{ x: [0, -20, 0] }}
+            transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+            className="absolute right-0 h-full w-10 bg-blue-400/50 rounded-full blur-sm"
+          />
+        </motion.div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="flex justify-center gap-3">
         <button 
           onClick={() => onLog(amount, 'water')}
-          className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group"
+          className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all group w-full"
         >
-          <GlassWater size={20} className="text-blue-400 group-hover:scale-110 transition-transform" />
-          <span className="text-[10px] font-bold uppercase">Water</span>
+          <Plus size={24} className="text-blue-400 group-hover:scale-110 transition-transform" />
+          <span className="text-[10px] font-bold uppercase">Add Water</span>
         </button>
         <button 
-          onClick={() => onLog(amount, 'drink')}
-          className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 hover:border-yellow-500/50 hover:bg-yellow-500/5 transition-all group"
+          onClick={() => onLog(-Math.min(amount, current), 'water')}
+          disabled={current <= 0}
+          className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 hover:border-red-500/50 hover:bg-red-500/5 transition-all group w-full disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-zinc-700/50 disabled:hover:bg-zinc-800/50"
         >
-          <Coffee size={20} className="text-yellow-400 group-hover:scale-110 transition-transform" />
-          <span className="text-[10px] font-bold uppercase">Drink</span>
-        </button>
-        <button 
-          onClick={() => onLog(amount, 'food')}
-          className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 hover:border-green-500/50 hover:bg-green-500/5 transition-all group"
-        >
-          <Apple size={20} className="text-green-400 group-hover:scale-110 transition-transform" />
-          <span className="text-[10px] font-bold uppercase">Food</span>
+          <Minus size={24} className="text-red-400 group-hover:scale-110 transition-transform" />
+          <span className="text-[10px] font-bold uppercase">Subtract</span>
         </button>
       </div>
 

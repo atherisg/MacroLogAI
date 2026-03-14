@@ -9,12 +9,14 @@ import {
   FitnessGoal, 
   Gender, 
   NutritionMode, 
+  MacroStrategy,
+  UnitPreference,
   ThemeType, 
   AccentColor,
   Supplement,
   BodyMetric
 } from '../types';
-import { calculateBMI, calculateTargets } from '../utils';
+import { calculateBMI, calculateTargets, kgToLbs, lbsToKg, cmToFtIn, ftInToCm } from '../utils';
 import { 
   Save, 
   User as UserIcon, 
@@ -42,10 +44,13 @@ import {
   BrainCircuit,
   Activity,
   HeartPulse,
-  Star
+  Star,
+  Repeat,
+  Loader2
 } from 'lucide-react';
 import MicroButton from '../components/MicroButton';
 import SupplementModal from '../components/SupplementModal';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
@@ -55,9 +60,33 @@ import MacroCircleBar from '../components/MacroCircleBar';
 import NumericInput from '../components/NumericInput';
 import CompactNumericInput from '../components/CompactNumericInput';
 import DataTile from '../components/DataTile';
+import ConfirmModal from '../components/ConfirmModal';
+import AlertModal from '../components/AlertModal';
 import SegmentedControl from '../components/SegmentedControl';
 
 type Tab = 'profile' | 'supplements' | 'appearance' | 'notifications' | 'privacy' | 'account';
+
+const ACTIVITY_LEVELS: { id: ActivityLevel; label: string; description: string }[] = [
+  { id: 'sedentary', label: 'Sedentary', description: 'Office job, little to no exercise' },
+  { id: 'lightly_active', label: 'Lightly Active', description: 'Light exercise 1-3 days/week' },
+  { id: 'moderately_active', label: 'Moderately Active', description: 'Moderate exercise 3-5 days/week' },
+  { id: 'very_active', label: 'Very Active', description: 'Hard exercise 6-7 days/week' },
+  { id: 'athlete', label: 'Athlete', description: 'Very hard exercise, physical job, 2x training' },
+];
+
+const FITNESS_GOALS: { id: FitnessGoal; label: string; description: string }[] = [
+  { id: 'lose_fat', label: 'Lose Weight', description: 'Calorie deficit for fat loss' },
+  { id: 'maintain', label: 'Maintain', description: 'Eat at your TDEE' },
+  { id: 'build_muscle', label: 'Build Muscle', description: 'Calorie surplus for muscle gain' },
+  { id: 'recomposition', label: 'Recomposition', description: 'Body recomposition (lose fat, gain muscle)' },
+];
+
+const MACRO_STRATEGIES: { id: MacroStrategy; label: string; description: string }[] = [
+  { id: 'bodyweight', label: 'Bodyweight Based', description: 'Custom g/kg for protein and fat' },
+  { id: 'balanced', label: 'Balanced Diet', description: '30% Protein, 40% Carbs, 30% Fat' },
+  { id: 'low_carb', label: 'Low Carb / Keto', description: '40% Protein, 20% Carbs, 40% Fat' },
+  { id: 'high_protein', label: 'High Protein', description: '45% Protein, 35% Carbs, 20% Fat' },
+];
 
 const Profile = React.forwardRef(({ user, profile }: { user: User, profile: UserProfile | null }, ref) => {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
@@ -78,6 +107,10 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
     weight: profile?.weight || 70,
     activityLevel: profile?.activityLevel || 'sedentary' as ActivityLevel,
     fitnessGoal: profile?.fitnessGoal || 'maintain' as FitnessGoal,
+    macroStrategy: profile?.macroStrategy || 'balanced' as MacroStrategy,
+    proteinGramsPerKg: profile?.proteinGramsPerKg || 2.0,
+    fatGramsPerKg: profile?.fatGramsPerKg || 0.8,
+    unitPreference: profile?.unitPreference || 'metric' as UnitPreference,
     nutritionMode: profile?.nutritionMode || 'auto' as NutritionMode,
     aiMacroOptimization: profile?.aiMacroOptimization ?? true,
     calorieTarget: profile?.calorieTarget || 2000,
@@ -111,6 +144,18 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
     anonymousAnalytics: profile?.privacy?.anonymousAnalytics ?? true,
   });
 
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
+  const [suppToDelete, setSuppToDelete] = useState<string | null>(null);
+  const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean; title: string; message: string; variant: 'info' | 'success' | 'error' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'info'
+  });
+  
   // Fetch Metrics and Supplements
   useEffect(() => {
     const metricsQuery = query(
@@ -157,6 +202,15 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
     }
   };
 
+  const handleDeleteSupplement = async (suppId: string) => {
+    try {
+      await deleteDoc(doc(db, 'supplements', suppId));
+      setSuppToDelete(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'supplements/' + suppId);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     
@@ -177,7 +231,8 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
       };
     }
 
-    const newProfile: UserProfile = {
+    const newProfile: any = {
+      ...(profile || {}),
       uid: user.uid,
       email: user.email!,
       ...formData,
@@ -189,8 +244,18 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
       createdAt: profile?.createdAt || new Date().toISOString(),
       role: profile?.role || 'client',
       isPremium: profile?.isPremium ?? true,
-      premiumExpiresAt: profile?.premiumExpiresAt || undefined,
     };
+
+    if (profile?.premiumExpiresAt !== undefined) {
+      newProfile.premiumExpiresAt = profile.premiumExpiresAt;
+    }
+
+    // Remove any undefined values to prevent Firestore errors
+    Object.keys(newProfile).forEach(key => {
+      if (newProfile[key] === undefined) {
+        delete newProfile[key];
+      }
+    });
 
     try {
       await setDoc(doc(db, 'users', user.uid), newProfile);
@@ -226,7 +291,12 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
       const meals = snap.docs.map(doc => doc.data());
       
       if (meals.length === 0) {
-        alert('No data to export');
+        setAlertConfig({
+          isOpen: true,
+          title: 'No Data',
+          message: 'You have no logged meals to export.',
+          variant: 'info'
+        });
         return;
       }
 
@@ -260,8 +330,6 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
   };
 
   const handleDeleteAccount = async () => {
-    if (!window.confirm('Are you sure? This will permanently delete ALL your data.')) return;
-    
     try {
       // Delete user-related data (best effort)
       const collectionsToDelete = ['meals', 'supplements', 'metrics'];
@@ -276,7 +344,47 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
       await deleteUser(auth.currentUser!);
     } catch (error) {
       console.error('Delete account failed:', error);
-      alert('Failed to delete account. You may need to re-authenticate first.');
+      setAlertConfig({
+        isOpen: true,
+        title: 'Delete Failed',
+        message: 'Failed to delete account. You may need to re-authenticate first.',
+        variant: 'error'
+      });
+    }
+  };
+
+  const handleResetHistory = async () => {
+    if (resetConfirmText !== 'Reset Progress') return;
+    setResetting(true);
+    try {
+      const collectionsToReset = [
+        'meals', 
+        'water_logs', 
+        'daily_nutrition_insights', 
+        'daily_nutrition_summaries',
+        'metrics',
+        'supplementLogs',
+        'weekly_reports'
+      ];
+      for (const collName of collectionsToReset) {
+        const q = query(collection(db, collName), where('uid', '==', user.uid));
+        const snap = await getDocs(q);
+        const deletePromises = snap.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+      }
+      setIsResetModalOpen(false);
+      setResetConfirmText('');
+      setAlertConfig({
+        isOpen: true,
+        title: 'Success',
+        message: 'History has been reset successfully.',
+        variant: 'success'
+      });
+    } catch (error) {
+      console.error('Reset failed:', error);
+      handleFirestoreError(error, OperationType.DELETE, 'history');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -387,16 +495,18 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                 </div>
               </section>
 
-              <section className="space-y-6">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-800 pb-2 block">Body Metrics & Nutrition Configuration</label>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Left Column: Inputs */}
-                  <div className="space-y-6">
-                    {/* Personal Information Card */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left Column: Inputs */}
+                <div className="space-y-6">
+                  {/* Personal Information Card */}
+                  <CollapsibleSection title="Personal Info" icon={UserIcon}>
                     <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
-                      <div className="flex items-center gap-2">
-                        <UserIcon size={18} className="text-primary" />
-                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Personal Info</h3>
+                      <div className="flex justify-end">
+                        <SegmentedControl 
+                          options={[{id: 'metric', label: 'Metric'}, {id: 'imperial', label: 'Imperial'}]} 
+                          value={formData.unitPreference} 
+                          onChange={v => setFormData({...formData, unitPreference: v as UnitPreference})} 
+                        />
                       </div>
                       <div className="space-y-4">
                         <NumericInput label="Age" value={formData.age} onChange={v => setFormData({...formData, age: v})} min={18} max={80} unit="yrs" />
@@ -417,60 +527,190 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                             ))}
                           </div>
                         </div>
-                        <NumericInput label="Height" value={formData.height} onChange={v => setFormData({...formData, height: v})} min={100} max={250} unit="cm" />
-                        <NumericInput label="Weight" value={formData.weight} onChange={v => setFormData({...formData, weight: v})} min={30} max={200} unit="kg" />
+                        
+                        {formData.unitPreference === 'metric' ? (
+                          <>
+                            <NumericInput label="Height" value={formData.height} onChange={v => setFormData({...formData, height: v})} min={100} max={250} unit="cm" />
+                            <NumericInput label="Weight" value={formData.weight} onChange={v => setFormData({...formData, weight: v})} min={30} max={200} unit="kg" />
+                          </>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <NumericInput 
+                                label="Height (ft)" 
+                                value={cmToFtIn(formData.height).ft} 
+                                onChange={v => {
+                                  const current = cmToFtIn(formData.height);
+                                  setFormData({...formData, height: ftInToCm(v, current.in)});
+                                }} 
+                                min={3} max={8} unit="ft" 
+                              />
+                              <NumericInput 
+                                label="Height (in)" 
+                                value={cmToFtIn(formData.height).in} 
+                                onChange={v => {
+                                  const current = cmToFtIn(formData.height);
+                                  setFormData({...formData, height: ftInToCm(current.ft, v)});
+                                }} 
+                                min={0} max={11} unit="in" 
+                              />
+                            </div>
+                            <NumericInput 
+                              label="Weight (lbs)" 
+                              value={Math.round(kgToLbs(formData.weight))} 
+                              onChange={v => setFormData({...formData, weight: lbsToKg(v)})} 
+                              min={60} max={500} unit="lbs" 
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
+                  </CollapsibleSection>
 
-                    {/* Fitness Configuration Card */}
+                  {/* Fitness Configuration Card */}
+                  <CollapsibleSection title="Fitness Config" icon={Activity}>
                     <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md">
-                      <div className="flex items-center gap-2">
-                        <Activity size={18} className="text-primary" />
-                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Fitness Config</h3>
-                      </div>
                       <div className="space-y-4">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Nutrition Mode</label>
                           <SegmentedControl 
                             options={[{id: 'auto', label: 'Auto'}, {id: 'manual', label: 'Manual'}]} 
                             value={formData.nutritionMode} 
-                            onChange={v => setFormData({...formData, nutritionMode: v as 'auto' | 'manual'})} 
+                            onChange={v => {
+                              if (v === 'manual') {
+                                setFormData({
+                                  ...formData, 
+                                  nutritionMode: 'manual',
+                                  calorieTarget: targets.calorieTarget,
+                                  proteinTarget: targets.proteinTarget,
+                                  carbsTarget: targets.carbsTarget,
+                                  fatTarget: targets.fatTarget
+                                });
+                              } else {
+                                setFormData({...formData, nutritionMode: 'auto'});
+                              }
+                            }} 
                           />
                         </div>
-                        <NumericInput label="Activity Level" value={formData.activityLevel === 'sedentary' ? 1 : formData.activityLevel === 'lightly_active' ? 2 : formData.activityLevel === 'moderately_active' ? 3 : formData.activityLevel === 'very_active' ? 4 : 5} onChange={v => setFormData({...formData, activityLevel: v === 1 ? 'sedentary' : v === 2 ? 'lightly_active' : v === 3 ? 'moderately_active' : v === 4 ? 'very_active' : 'athlete'})} min={1} max={5} unit="level" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Outputs */}
-                  <div className="space-y-6">
-                    {/* Body Metrics Card */}
-                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
-                      <div className="flex items-center gap-2">
-                        <HeartPulse size={18} className="text-primary" />
-                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Body Metrics</h3>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <DataTile label="BMI" value={bmiData.value} unit={bmiData.category} color={bmiData.category === 'Normal' ? 'text-emerald-400' : bmiData.category === 'Underweight' ? 'text-blue-400' : bmiData.category === 'Overweight' ? 'text-yellow-400' : 'text-red-400'} />
-                        <DataTile label="BMR" value={<AnimatedNumber value={targets.bmr} />} unit="kcal/day" />
-                        <DataTile label="TDEE" value={<AnimatedNumber value={targets.tdee} />} unit="kcal/day" />
-                      </div>
-                    </div>
-
-                    {/* Nutrition Targets Card */}
-                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Target size={18} className="text-primary" />
-                          <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Nutrition Targets</h3>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Activity Level</label>
+                          <div className="grid grid-cols-1 gap-2">
+                            {ACTIVITY_LEVELS.map((level) => (
+                              <button
+                                key={level.id}
+                                onClick={() => setFormData({ ...formData, activityLevel: level.id })}
+                                className={clsx(
+                                  "w-full p-4 rounded-2xl text-left transition-all border flex flex-col gap-1",
+                                  formData.activityLevel === level.id
+                                    ? "bg-primary/10 border-primary text-primary shadow-[0_0_20px_rgba(130,217,93,0.1)]"
+                                    : "bg-zinc-950/50 border-white/5 text-zinc-400 hover:border-zinc-700"
+                                )}
+                              >
+                                <span className="text-xs font-black uppercase tracking-tight">{level.label}</span>
+                                <span className="text-[10px] opacity-60 font-medium leading-tight">{level.description}</span>
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        <SegmentedControl 
-                          options={[{id: 'auto', label: 'Auto'}, {id: 'manual', label: 'Manual'}]} 
-                          value={formData.nutritionMode} 
-                          onChange={v => setFormData({...formData, nutritionMode: v as 'auto' | 'manual'})} 
-                        />
+                      </div>
+                    </div>
+                  </CollapsibleSection>
+
+                  {/* Macro Strategy Card */}
+                  <CollapsibleSection title="Macro Strategy" icon={BrainCircuit}>
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md">
+                      <div className="grid grid-cols-1 gap-2">
+                        {MACRO_STRATEGIES.map((strategy) => (
+                          <button
+                            key={strategy.id}
+                            onClick={() => setFormData({ ...formData, macroStrategy: strategy.id })}
+                            className={clsx(
+                              "w-full p-4 rounded-2xl text-left transition-all border flex flex-col gap-1",
+                              formData.macroStrategy === strategy.id
+                                ? "bg-primary/10 border-primary text-primary shadow-[0_0_20px_rgba(130,217,93,0.1)]"
+                                : "bg-zinc-950/50 border-white/5 text-zinc-400 hover:border-zinc-700"
+                            )}
+                          >
+                            <span className="text-xs font-black uppercase tracking-tight">{strategy.label}</span>
+                            <span className="text-[10px] opacity-60 font-medium leading-tight">{strategy.description}</span>
+                          </button>
+                        ))}
                       </div>
 
+                      {formData.macroStrategy === 'bodyweight' && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="pt-4 border-t border-white/5 space-y-4"
+                        >
+                          <NumericInput 
+                            label={formData.unitPreference === 'imperial' ? "Protein (g/lb)" : "Protein (g/kg)"} 
+                            value={formData.unitPreference === 'imperial' ? Number((formData.proteinGramsPerKg / 2.20462).toFixed(2)) : formData.proteinGramsPerKg} 
+                            onChange={v => setFormData({...formData, proteinGramsPerKg: formData.unitPreference === 'imperial' ? v * 2.20462 : v})} 
+                            min={formData.unitPreference === 'imperial' ? 0.2 : 0.5} 
+                            max={formData.unitPreference === 'imperial' ? 2.0 : 4.0} 
+                            step={0.1} 
+                            unit={formData.unitPreference === 'imperial' ? "g/lb" : "g/kg"} 
+                          />
+                          <NumericInput 
+                            label={formData.unitPreference === 'imperial' ? "Fat (g/lb)" : "Fat (g/kg)"} 
+                            value={formData.unitPreference === 'imperial' ? Number((formData.fatGramsPerKg / 2.20462).toFixed(2)) : formData.fatGramsPerKg} 
+                            onChange={v => setFormData({...formData, fatGramsPerKg: formData.unitPreference === 'imperial' ? v * 2.20462 : v})} 
+                            min={formData.unitPreference === 'imperial' ? 0.1 : 0.3} 
+                            max={formData.unitPreference === 'imperial' ? 1.0 : 2.0} 
+                            step={0.1} 
+                            unit={formData.unitPreference === 'imperial' ? "g/lb" : "g/kg"} 
+                          />
+                          <p className="text-[10px] text-zinc-500 italic">Carbs will be calculated from remaining calories.</p>
+                        </motion.div>
+                      )}
+                    </div>
+                  </CollapsibleSection>
+                </div>
+
+                {/* Right Column: Outputs */}
+                <div className="space-y-6">
+                  {/* Body Metrics Card */}
+                  <CollapsibleSection title="Body Metrics" icon={HeartPulse}>
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <DataTile label="BMI" value={bmiData.value} unit={bmiData.category} color={bmiData.category === 'Normal' ? 'text-emerald-400' : bmiData.category === 'Underweight' ? 'text-blue-400' : bmiData.category === 'Overweight' ? 'text-yellow-400' : 'text-red-400'} />
+                        <DataTile label="Goal" value={FITNESS_GOALS.find(g => g.id === formData.fitnessGoal)?.label || 'Maintain'} unit="Current" color="text-primary" />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <DataTile label="BMR" value={<AnimatedNumber value={targets.bmr} />} unit="kcal" />
+                        <DataTile label="TDEE" value={<AnimatedNumber value={targets.tdee} />} unit="kcal" />
+                        <DataTile label="Target" value={<AnimatedNumber value={targets.calorieTarget} />} unit="kcal" color="text-primary" />
+                      </div>
+                    </div>
+                  </CollapsibleSection>
+
+                  {/* Nutrition Targets Card */}
+                  <CollapsibleSection 
+                    title="Nutrition Targets" 
+                    icon={Target}
+                    headerRight={
+                      <SegmentedControl 
+                        options={[{id: 'auto', label: 'Auto'}, {id: 'manual', label: 'Manual'}]} 
+                        value={formData.nutritionMode} 
+                        onChange={v => {
+                          if (v === 'manual') {
+                            setFormData({
+                              ...formData, 
+                              nutritionMode: 'manual',
+                              calorieTarget: targets.calorieTarget,
+                              proteinTarget: targets.proteinTarget,
+                              carbsTarget: targets.carbsTarget,
+                              fatTarget: targets.fatTarget
+                            });
+                          } else {
+                            setFormData({...formData, nutritionMode: 'auto'});
+                          }
+                        }} 
+                      />
+                    }
+                  >
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
                       <div className="space-y-4">
                         <div className="p-6 bg-zinc-950/30 rounded-2xl border border-white/5 flex flex-col items-center justify-center relative overflow-hidden">
                           <MacroCircleBar 
@@ -488,21 +728,54 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                           )}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <DataTile label="Protein" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.proteinTarget} onChange={v => setFormData({...formData, proteinTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.proteinTarget} />} unit="g" color="text-emerald-500" />
                           <DataTile label="Carbs" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.carbsTarget} onChange={v => setFormData({...formData, carbsTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.carbsTarget} />} unit="g" color="text-blue-500" />
                           <DataTile label="Fat" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.fatTarget} onChange={v => setFormData({...formData, fatTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.fatTarget} />} unit="g" color="text-amber-500" />
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </CollapsibleSection>
+
+                  {/* Fitness Goal Card */}
+                  <CollapsibleSection title="Fitness Goal" icon={Activity}>
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
+                      <div className="grid grid-cols-1 gap-2">
+                        {FITNESS_GOALS.map((goal) => (
+                          <button
+                            key={goal.id}
+                            onClick={() => {
+                              setFormData({ ...formData, fitnessGoal: goal.id });
+                              // If they change goal, they probably want to see the new targets
+                              if (formData.nutritionMode === 'manual') {
+                                setAlertConfig({
+                                  isOpen: true,
+                                  title: 'Manual Mode Active',
+                                  message: 'You are currently in Manual Mode. To use the new targets calculated for this goal, switch to Auto Mode in the Nutrition Targets section.',
+                                  variant: 'info'
+                                });
+                              }
+                            }}
+                            className={clsx(
+                              "w-full p-4 rounded-2xl text-left transition-all border flex flex-col gap-1",
+                              formData.fitnessGoal === goal.id
+                                ? "bg-primary/10 border-primary text-primary shadow-[0_0_20px_rgba(130,217,93,0.1)]"
+                                : "bg-zinc-950/50 border-white/5 text-zinc-400 hover:border-zinc-700"
+                            )}
+                          >
+                            <span className="text-xs font-black uppercase tracking-tight">{goal.label}</span>
+                            <span className="text-[10px] opacity-60 font-medium leading-tight">{goal.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </CollapsibleSection>
                 </div>
-              </section>
+              </div>
 
               {/* Weight History Chart */}
               {metrics && metrics.length > 0 && 
-                <div className="space-y-4">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Weight Trend</label>
+                <CollapsibleSection title="Weight Trend" icon={TrendingUp}>
                   <div className="h-48 w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-4">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={metrics}>
@@ -530,19 +803,17 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                </CollapsibleSection>
               }
             </div>
           )}
 
           {activeTab === 'supplements' && (
             <div className="space-y-8">
-              <section className="space-y-6">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Supplement Management</label>
-                    <p className="text-[10px] text-zinc-600">Define your daily supplement stack</p>
-                  </div>
+              <CollapsibleSection 
+                title="Supplement Management" 
+                icon={Pill}
+                headerRight={
                   <button 
                     onClick={() => {
                       setEditingSupp(null);
@@ -550,10 +821,10 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     }}
                     className="flex items-center gap-2 text-primary text-[10px] font-bold uppercase tracking-widest hover:opacity-80 transition-opacity"
                   >
-                    <Plus size={14} /> Add New Supplement
+                    <Plus size={14} /> Add New
                   </button>
-                </div>
-
+                }
+              >
                 <div className="grid grid-cols-1 gap-4">
                   {supplements.length === 0 ? (
                     <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-[2rem]">
@@ -583,11 +854,7 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                             <Edit2 size={16} />
                           </button>
                           <button 
-                            onClick={() => {
-                              if (confirm('Delete this supplement?')) {
-                                deleteDoc(doc(db, 'supplements', supp.id!));
-                              }
-                            }}
+                            onClick={() => setSuppToDelete(supp.id!)}
                             className="p-2 text-zinc-500 hover:text-red-500 transition-colors"
                           >
                             <Trash2 size={16} />
@@ -597,7 +864,7 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     ))
                   )}
                 </div>
-              </section>
+              </CollapsibleSection>
 
               <SupplementModal 
                 isOpen={isSuppModalOpen}
@@ -610,8 +877,7 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
 
           {activeTab === 'appearance' && (
             <div className="space-y-10">
-              <div className="space-y-6">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Theme System</label>
+              <CollapsibleSection title="Theme System" icon={Palette}>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {(['dark', 'light', 'midnight', 'forest', 'ocean'] as ThemeType[]).map(t => (
                     <button
@@ -634,10 +900,9 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
 
-              <div className="space-y-6">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Accent Color</label>
+              <CollapsibleSection title="Accent Color" icon={Zap}>
                 <div className="flex flex-wrap gap-4">
                   {(['neon-green', 'blue', 'purple', 'orange', 'red'] as AccentColor[]).map(c => (
                     <button
@@ -657,10 +922,9 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
 
-              <div className="space-y-6">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Interface Preferences</label>
+              <CollapsibleSection title="Interface Preferences" icon={Settings}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { id: 'animationsEnabled', label: 'Animations', icon: Zap },
@@ -693,14 +957,13 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             </div>
           )}
 
           {activeTab === 'notifications' && (
             <div className="space-y-8">
-              <div className="space-y-4">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Notification Channels</label>
+              <CollapsibleSection title="Notification Channels" icon={Bell}>
                 <div className="space-y-3">
                   {[
                     { id: 'mealReminders', label: 'Meal Reminders' },
@@ -726,10 +989,9 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </div>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
 
-              <div className="space-y-4">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Reminder Schedule</label>
+              <CollapsibleSection title="Reminder Schedule" icon={Settings}>
                 <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-tighter">Daily Morning Reminder</span>
                   <input 
@@ -739,14 +1001,13 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     className="bg-zinc-800 border-none rounded-lg p-2 text-primary font-bold outline-none"
                   />
                 </div>
-              </div>
+              </CollapsibleSection>
             </div>
           )}
 
           {activeTab === 'privacy' && (
             <div className="space-y-8">
-              <div className="space-y-4">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Privacy Controls</label>
+              <CollapsibleSection title="Privacy Controls" icon={Shield}>
                 <div className="space-y-3">
                   {[
                     { id: 'isPrivate', label: 'Private Account', desc: 'Hide your profile from others.' },
@@ -773,7 +1034,7 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </div>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             </div>
           )}
 
@@ -851,7 +1112,12 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     </div>
                   </button>
                   <button 
-                    onClick={() => alert('PDF Export coming soon!')}
+                    onClick={() => setAlertConfig({
+                      isOpen: true,
+                      title: 'Coming Soon',
+                      message: 'PDF Export is currently in development and will be available in a future update.',
+                      variant: 'info'
+                    })}
                     className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl flex items-center gap-4 hover:border-primary/50 transition-all group"
                   >
                     <div className="p-3 bg-zinc-800 text-zinc-400 group-hover:bg-primary/20 group-hover:text-primary rounded-2xl transition-colors">
@@ -879,7 +1145,17 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
                     <ChevronRight size={16} className="text-zinc-700" />
                   </button>
                   <button 
-                    onClick={handleDeleteAccount}
+                    onClick={() => setIsResetModalOpen(true)}
+                    className="w-full p-6 bg-orange-500/5 border border-orange-500/20 rounded-3xl flex items-center justify-between hover:bg-orange-500/10 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <Repeat className="text-orange-500" size={20} />
+                      <span className="font-bold uppercase tracking-tighter text-orange-500">Reset Progress</span>
+                    </div>
+                    <ChevronRight size={16} className="text-orange-900" />
+                  </button>
+                  <button 
+                    onClick={() => setIsDeleteAccountModalOpen(true)}
                     className="w-full p-6 bg-red-500/5 border border-red-500/20 rounded-3xl flex items-center justify-between hover:bg-red-500/10 transition-colors"
                   >
                     <div className="flex items-center gap-4">
@@ -894,6 +1170,87 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
           )}
         </motion.div>
       </AnimatePresence>
+      {/* Reset Confirmation Modal */}
+      <AnimatePresence>
+        {isResetModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-[2.5rem] p-8 max-w-md w-full space-y-6 shadow-2xl"
+            >
+              <div className="space-y-2 text-center">
+                <div className="w-16 h-16 bg-orange-500/10 text-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle size={32} />
+                </div>
+                <h3 className="text-2xl font-black italic uppercase tracking-tight text-white">Reset Progress?</h3>
+                <p className="text-zinc-500 text-sm">This will permanently delete all your meal history, water logs, and nutrition insights. This cannot be undone.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Type "Reset Progress" to confirm</label>
+                  <input 
+                    type="text" 
+                    value={resetConfirmText}
+                    onChange={e => setResetConfirmText(e.target.value)}
+                    placeholder="Reset Progress"
+                    className="w-full h-12 bg-zinc-950 border border-zinc-800 rounded-xl px-4 focus:border-orange-500 outline-none text-white font-bold text-center"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setIsResetModalOpen(false);
+                      setResetConfirmText('');
+                    }}
+                    className="flex-1 py-4 bg-zinc-800 text-zinc-400 font-bold uppercase tracking-widest rounded-2xl text-[10px] hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={resetConfirmText !== 'Reset Progress' || resetting}
+                    onClick={handleResetHistory}
+                    className="flex-1 py-4 bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-black font-black uppercase tracking-widest rounded-2xl text-[10px] hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+                  >
+                    {resetting ? <Loader2 className="animate-spin" size={14} /> : 'Reset Now'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={isDeleteAccountModalOpen}
+        onClose={() => setIsDeleteAccountModalOpen(false)}
+        onConfirm={handleDeleteAccount}
+        title="Delete Account"
+        message="Are you sure you want to permanently delete your account and all associated data? This action cannot be undone."
+        confirmText="Delete Account"
+        variant="danger"
+      />
+
+      <ConfirmModal
+        isOpen={!!suppToDelete}
+        onClose={() => setSuppToDelete(null)}
+        onConfirm={() => suppToDelete && handleDeleteSupplement(suppToDelete)}
+        title="Delete Supplement"
+        message="Are you sure you want to remove this supplement? This will stop tracking its logs and streaks."
+        confirmText="Delete"
+        variant="danger"
+      />
+
+      <AlertModal
+        isOpen={alertConfig.isOpen}
+        onClose={() => setAlertConfig(prev => ({ ...prev, isOpen: false }))}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        variant={alertConfig.variant}
+      />
     </div>
   );
 });

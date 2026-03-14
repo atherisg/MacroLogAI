@@ -4,6 +4,8 @@ export type Gender = 'male' | 'female' | 'other';
 export type NutritionMode = 'auto' | 'manual';
 export type ThemeType = 'dark' | 'light' | 'midnight' | 'forest' | 'ocean';
 export type AccentColor = 'neon-green' | 'blue' | 'purple' | 'orange' | 'red';
+export type MacroStrategy = 'bodyweight' | 'balanced' | 'low_carb' | 'high_protein';
+export type UnitPreference = 'metric' | 'imperial';
 
 export interface UserSettings {
   animationsEnabled: boolean;
@@ -68,6 +70,10 @@ export interface UserProfile {
   activityLevel: ActivityLevel;
   fitnessGoal: FitnessGoal;
   nutritionMode: NutritionMode;
+  macroStrategy: MacroStrategy;
+  proteinGramsPerKg: number;
+  fatGramsPerKg: number;
+  unitPreference: UnitPreference;
   aiMacroOptimization: boolean;
   calorieTarget: number;
   proteinTarget: number;
@@ -108,6 +114,7 @@ export interface Meal {
   carbs: number;
   fat: number;
   timestamp: string;
+  log_date?: string; // YYYY-MM-DD
   imageUrl?: string;
   imageUrls?: string[];
   confidenceScore?: number;
@@ -280,7 +287,7 @@ export interface WaterLog {
   id?: string;
   uid: string;
   amountMl: number;
-  source: 'water' | 'drink' | 'food';
+  source: 'water';
   timestamp: string;
   date: string; // YYYY-MM-DD
 }

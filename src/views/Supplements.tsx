@@ -6,9 +6,11 @@ import { Supplement, SupplementLog, UserProfile, WaterLog } from '../types';
 import { Plus, Trash2, Check, Flame, History as HistoryIcon, Pill, Edit2, Droplets, Minus } from 'lucide-react';
 import { format, subDays, isSameDay, startOfDay, endOfDay } from 'date-fns';
 import SupplementModal from '../components/SupplementModal';
+import { CollapsibleSection } from '../components/CollapsibleSection';
 import { motion, AnimatePresence } from 'motion/react';
 import { hasPremiumAccess } from '../utils/premium';
 import PremiumLocked from '../components/PremiumLocked';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function Supplements({ user, profile, onUpgrade }: { user: User, profile: UserProfile, onUpgrade: () => void }) {
   const [supps, setSupps] = useState<Supplement[]>([]);
@@ -16,6 +18,7 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
   const [waterLogs, setWaterLogs] = useState<WaterLog[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupp, setEditingSupp] = useState<Supplement | null>(null);
+  const [suppToDelete, setSuppToDelete] = useState<string | null>(null);
 
   const isPremium = hasPremiumAccess(profile);
 
@@ -123,6 +126,13 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
     }
   };
 
+  const handleDeleteSupplement = async (suppId: string) => {
+    try {
+      await deleteDoc(doc(db, 'supplements', suppId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'supplements/' + suppId);
+    }
+  };
   const totalWater = waterLogs.reduce((acc, log) => acc + log.amountMl, 0);
   const waterTarget = profile.waterTarget || 2500;
   const waterProgress = Math.min((totalWater / waterTarget) * 100, 100);
@@ -152,12 +162,7 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
   return (
     <div className="space-y-12">
       {/* Hydration Section */}
-      <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <Droplets className="text-blue-500" size={24} />
-          <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Hydration</h2>
-        </div>
-
+      <CollapsibleSection title="Hydration" icon={Droplets}>
         {!isPremium ? (
           <PremiumLocked 
             title="Hydration Tracking"
@@ -206,15 +211,13 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
             </div>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* Supplements Section */}
-      <div className="space-y-6">
-        <div className="flex justify-between items-start">
-          <div className="flex items-center gap-2">
-            <Pill className="text-primary" size={24} />
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Supplements</h2>
-          </div>
+      <CollapsibleSection 
+        title="Supplements" 
+        icon={Pill}
+        headerRight={
           <button 
             onClick={() => {
               setEditingSupp(null);
@@ -224,8 +227,8 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
           >
             <Plus size={24} />
           </button>
-        </div>
-
+        }
+      >
         <div className="grid grid-cols-1 gap-4">
           {supps.length === 0 ? (
             <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-[2rem]">
@@ -295,15 +298,7 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
                         <Edit2 size={18} />
                       </button>
                       <button 
-                        onClick={async () => {
-                          if (confirm('Delete this supplement?')) {
-                            try {
-                              await deleteDoc(doc(db, 'supplements', supp.id!));
-                            } catch (error) {
-                              handleFirestoreError(error, OperationType.DELETE, 'supplements/' + supp.id);
-                            }
-                          }
-                        }}
+                        onClick={() => setSuppToDelete(supp.id!)}
                         className="p-2 text-zinc-600 hover:text-red-500 transition-colors"
                       >
                         <Trash2 size={18} />
@@ -315,13 +310,23 @@ export default function Supplements({ user, profile, onUpgrade }: { user: User, 
             })
           )}
         </div>
-      </div>
+      </CollapsibleSection>
 
       <SupplementModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveSupplement}
         initialData={editingSupp}
+      />
+
+      <ConfirmModal
+        isOpen={!!suppToDelete}
+        onClose={() => setSuppToDelete(null)}
+        onConfirm={() => suppToDelete && handleDeleteSupplement(suppToDelete)}
+        title="Delete Supplement"
+        message="Are you sure you want to remove this supplement? This will stop tracking its logs and streaks."
+        confirmText="Delete"
+        variant="danger"
       />
     </div>
   );

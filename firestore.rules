@@ -210,8 +210,8 @@ service cloud.firestore {
 
     function isValidWaterLog(data) {
       return data.uid is string && data.uid.size() < 128 &&
-             data.amountMl is number && data.amountMl > 0 && data.amountMl < 10000 &&
-             data.source in ['water', 'drink', 'food'] &&
+             data.amountMl is number && data.amountMl > -10000 && data.amountMl < 10000 &&
+             data.source == 'water' &&
              data.timestamp is string && isValidDateTimeString(data.timestamp) &&
              data.date is string && isValidDateString(data.date);
     }
