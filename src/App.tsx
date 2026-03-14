@@ -263,8 +263,6 @@ export default function App() {
             </motion.div>
           </div>
         </div>
-      ) : !profile && currentView !== 'profile' ? (
-        <Profile user={user} profile={null} />
       ) : (
         <div className="min-h-screen bg-[#050505] text-white font-sans pb-24">
           <header className="sticky top-0 z-50 bg-[#050505]/80 backdrop-blur-md border-b border-zinc-900 px-6 py-4 flex items-center justify-between">
@@ -279,7 +277,7 @@ export default function App() {
                   <span className="text-[8px] font-black uppercase tracking-widest text-primary">Premium</span>
                 </div>
               )}
-              {!profile?.isPremium && (
+              {!profile?.isPremium && profile && (
                 <button 
                   onClick={() => setCurrentView('premium')}
                   className="hidden md:flex items-center gap-1 px-3 py-1 bg-zinc-800 border border-zinc-700 rounded-full hover:border-primary/50 transition-colors"
@@ -288,7 +286,7 @@ export default function App() {
                   <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400">Upgrade</span>
                 </button>
               )}
-              {currentView === 'profile' && (
+              {(!profile || currentView === 'profile') && (
                 <button 
                   onClick={() => profileRef.current?.handleSave()} 
                   disabled={profileRef.current?.saving}
@@ -297,105 +295,119 @@ export default function App() {
                   <Save size={14} /> Save
                 </button>
               )}
-              <button onClick={() => setCurrentView('profile')} className={cn("transition-colors", currentView === 'profile' ? "text-primary" : "text-zinc-500 hover:text-white")}>
-                <Settings size={20} />
-              </button>
-              <button onClick={handleLogout} className="text-zinc-500 hover:text-white transition-colors">
-                <LogOut size={20} />
-              </button>
+              {profile && (
+                <>
+                  <button onClick={() => setCurrentView('profile')} className={cn("transition-colors", currentView === 'profile' ? "text-primary" : "text-zinc-500 hover:text-white")}>
+                    <Settings size={20} />
+                  </button>
+                  <button onClick={handleLogout} className="text-zinc-500 hover:text-white transition-colors">
+                    <LogOut size={20} />
+                  </button>
+                </>
+              )}
             </div>
           </header>
 
           <main className="max-w-5xl mx-auto p-6">
             <AnimatePresence mode="wait">
-              <PageTransition key={currentView}>
-                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} onNavigate={setCurrentView} selectedDate={selectedDate} onDateChange={setSelectedDate} />}
-                {currentView === 'profile' && <Profile ref={profileRef} user={user} profile={profile} />}
-                {currentView === 'pantry' && <Pantry user={user} profile={profile!} />}
-                {currentView === 'supplements' && <Supplements user={user} profile={profile!} onUpgrade={() => setCurrentView('premium')} />}
-                {currentView === 'history' && <MealHistory user={user} onSelectDate={(date) => { setSelectedDate(date); setCurrentView('dashboard'); }} />}
-                {currentView === 'log' && <LogMeal user={user} profile={profile!} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} onNavigate={setCurrentView} initialDate={selectedDate} />}
-                {currentView === 'ai' && <AIAssistant user={user} profile={profile!} />}
-                {currentView === 'premium' && <Premium user={user} isPremium={!!profile?.isPremium} />}
+              <PageTransition key={!profile ? 'profile' : currentView}>
+                {!profile ? (
+                  <Profile ref={profileRef} user={user} profile={null} />
+                ) : (
+                  <>
+                    {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} onNavigate={setCurrentView} selectedDate={selectedDate} onDateChange={setSelectedDate} />}
+                    {currentView === 'profile' && <Profile ref={profileRef} user={user} profile={profile} />}
+                    {currentView === 'pantry' && <Pantry user={user} profile={profile!} />}
+                    {currentView === 'supplements' && <Supplements user={user} profile={profile!} onUpgrade={() => setCurrentView('premium')} />}
+                    {currentView === 'history' && <MealHistory user={user} onSelectDate={(date) => { setSelectedDate(date); setCurrentView('dashboard'); }} />}
+                    {currentView === 'log' && <LogMeal user={user} profile={profile!} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} onNavigate={setCurrentView} initialDate={selectedDate} />}
+                    {currentView === 'ai' && <AIAssistant user={user} profile={profile!} />}
+                    {currentView === 'premium' && <Premium user={user} isPremium={!!profile?.isPremium} />}
+                  </>
+                )}
               </PageTransition>
             </AnimatePresence>
           </main>
 
-          {/* Add Menu Overlay */}
-          <AnimatePresence>
-            {showAddMenu && (
-              <>
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setShowAddMenu(false)}
-                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-                />
-                <motion.div 
-                  initial={{ opacity: 0, y: 100, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 100, scale: 0.9 }}
-                  className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-3"
-                >
-                  <button 
-                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
-                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                      <FileText size={16} className="text-primary" />
-                    </div>
-                    <span className="font-bold text-sm">Log Food</span>
-                  </button>
-                  <button 
-                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('image'); setCurrentView('log'); }}
-                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-                      <Camera size={16} className="text-blue-500" />
-                    </div>
-                    <span className="font-bold text-sm">Scan Food</span>
-                  </button>
-                  <button 
-                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
-                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
-                      <Plus size={16} className="text-orange-500" />
-                    </div>
-                    <span className="font-bold text-sm">Add Recipe</span>
-                  </button>
-                  <button 
-                    onClick={() => { setShowAddMenu(false); setCurrentView('supplements'); }}
-                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
-                      <Zap size={16} className="text-purple-500" />
-                    </div>
-                    <span className="font-bold text-sm">Log Supplement</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
+          {profile && (
+            <>
+              {/* Add Menu Overlay */}
+              <AnimatePresence>
+                {showAddMenu && (
+                  <>
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => setShowAddMenu(false)}
+                      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+                    />
+                    <motion.div 
+                      initial={{ opacity: 0, y: 100, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 100, scale: 0.9 }}
+                      className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-3"
+                    >
+                      <button 
+                        onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
+                        className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                          <FileText size={16} className="text-primary" />
+                        </div>
+                        <span className="font-bold text-sm">Log Food</span>
+                      </button>
+                      <button 
+                        onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('image'); setCurrentView('log'); }}
+                        className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                          <Camera size={16} className="text-blue-500" />
+                        </div>
+                        <span className="font-bold text-sm">Scan Food</span>
+                      </button>
+                      <button 
+                        onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
+                        className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
+                          <Plus size={16} className="text-orange-500" />
+                        </div>
+                        <span className="font-bold text-sm">Add Recipe</span>
+                      </button>
+                      <button 
+                        onClick={() => { setShowAddMenu(false); setCurrentView('supplements'); }}
+                        className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
+                          <Zap size={16} className="text-purple-500" />
+                        </div>
+                        <span className="font-bold text-sm">Log Supplement</span>
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
 
-          <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/90 backdrop-blur-xl border-t border-zinc-800 px-2 py-2 flex items-center justify-around z-50">
-            <NavItem id="dashboard" icon={LayoutDashboard} label="Home" />
-            <NavItem id="history" icon={History} label="History" />
-            <motion.button 
-              whileHover={{ scale: 1.1, y: -10 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowAddMenu(!showAddMenu)}
-              className={cn(
-                "w-14 h-14 rounded-full flex items-center justify-center -mt-8 shadow-lg border-4 border-[#050505] transition-all z-50",
-                showAddMenu ? "bg-zinc-800 text-white shadow-zinc-900/50 rotate-45" : "bg-primary text-black shadow-primary/30"
-              )}
-            >
-              <Plus size={28} />
-            </motion.button>
-            <NavItem id="pantry" icon={Refrigerator} label="Pantry" />
-            <NavItem id="ai" icon={BrainCircuit} label="AI Coach" />
-          </nav>
+              <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/90 backdrop-blur-xl border-t border-zinc-800 px-2 py-2 flex items-center justify-around z-50">
+                <NavItem id="dashboard" icon={LayoutDashboard} label="Home" />
+                <NavItem id="history" icon={History} label="History" />
+                <motion.button 
+                  whileHover={{ scale: 1.1, y: -10 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setShowAddMenu(!showAddMenu)}
+                  className={cn(
+                    "w-14 h-14 rounded-full flex items-center justify-center -mt-8 shadow-lg border-4 border-[#050505] transition-all z-50",
+                    showAddMenu ? "bg-zinc-800 text-white shadow-zinc-900/50 rotate-45" : "bg-primary text-black shadow-primary/30"
+                  )}
+                >
+                  <Plus size={28} />
+                </motion.button>
+                <NavItem id="pantry" icon={Refrigerator} label="Pantry" />
+                <NavItem id="ai" icon={BrainCircuit} label="AI Coach" />
+              </nav>
+            </>
+          )}
         </div>
       )}
     </SoundProvider>
