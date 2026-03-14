@@ -28,6 +28,34 @@ export interface PrivacySettings {
   anonymousAnalytics: boolean;
 }
 
+export interface MicronutrientProfile {
+  // Vitamins
+  vitaminA?: number; // mcg RAE
+  vitaminB1?: number; // mg
+  vitaminB2?: number; // mg
+  vitaminB3?: number; // mg
+  vitaminB5?: number; // mg
+  vitaminB6?: number; // mg
+  vitaminB9?: number; // mcg DFE (Folate)
+  vitaminB12?: number; // mcg
+  vitaminC?: number; // mg
+  vitaminD?: number; // mcg
+  vitaminE?: number; // mg
+  vitaminK?: number; // mcg
+  // Minerals
+  calcium?: number; // mg
+  iron?: number; // mg
+  magnesium?: number; // mg
+  phosphorus?: number; // mg
+  potassium?: number; // mg
+  sodium?: number; // mg
+  zinc?: number; // mg
+  copper?: number; // mg
+  manganese?: number; // mg
+  selenium?: number; // mcg
+  iodine?: number; // mcg
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
@@ -45,6 +73,8 @@ export interface UserProfile {
   proteinTarget: number;
   carbsTarget: number;
   fatTarget: number;
+  waterTarget?: number; // in ml
+  micronutrientTargets?: MicronutrientProfile;
   theme: ThemeType;
   accentColor: AccentColor;
   dashboardWidgets: string[];
@@ -53,6 +83,8 @@ export interface UserProfile {
   createdAt: string;
   settings: UserSettings;
   role?: 'admin' | 'client';
+  isPremium?: boolean;
+  premiumExpiresAt?: string;
   currentStreakDays?: number;
   longestStreak?: number;
   lastScoredDate?: string;
@@ -77,8 +109,59 @@ export interface Meal {
   fat: number;
   timestamp: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  confidenceScore?: number;
   sourceType: 'text' | 'image' | 'label';
   mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  aminoAcidTotals?: AminoAcidProfile;
+  micronutrients?: MicronutrientProfile;
+  proteinUtilizationScore?: number;
+  aiAminoAcidInsights?: string;
+  mpsTriggerStatus?: 'MPS_TRIGGERED' | 'BELOW_THRESHOLD';
+  proteinQualityAnalysis?: ProteinQualityAnalysis;
+}
+
+export interface ProteinQualityAnalysis {
+  proteinQualityScore: number;
+  rating: string;
+  limitingAminoAcids: string[];
+  comments: string;
+}
+
+export interface AminoAcidProfile {
+  // Essential
+  leucine?: number;
+  isoleucine?: number;
+  valine?: number;
+  lysine?: number;
+  methionine?: number;
+  phenylalanine?: number;
+  threonine?: number;
+  tryptophan?: number;
+  histidine?: number;
+  // Conditionally Essential / Others
+  arginine?: number;
+  cysteine?: number;
+  tyrosine?: number;
+  glutamine?: number;
+  glycine?: number;
+  proline?: number;
+  serine?: number;
+  alanine?: number;
+  asparticAcid?: number;
+  glutamicAcid?: number;
+}
+
+export interface FoodItem {
+  id?: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  aminoAcidProfile: AminoAcidProfile; // grams per 100g
+  micronutrients: MicronutrientProfile; // per 100g
+  createdAt: string;
 }
 
 export interface PantryItem {
@@ -166,4 +249,38 @@ export interface WeeklyReport {
   worstDietScore: number;
   aiInsights: string;
   createdAt: string;
+}
+
+export interface DailyNutritionInsights {
+  id?: string;
+  uid: string;
+  date: string; // YYYY-MM-DD
+  proteinDistributionInsight: string;
+  proteinDistributionRecommendation: string;
+  mealProteinValues: { [mealType: string]: number };
+  proteinDistributionScore?: number;
+  micronutrientInsights?: string;
+  createdAt: string;
+}
+
+export interface DailyNutritionSummary {
+  id?: string;
+  uid: string;
+  date: string; // YYYY-MM-DD
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  micronutrients: MicronutrientProfile;
+  waterIntakeMl: number;
+  createdAt: string;
+}
+
+export interface WaterLog {
+  id?: string;
+  uid: string;
+  amountMl: number;
+  source: 'water' | 'drink' | 'food';
+  timestamp: string;
+  date: string; // YYYY-MM-DD
 }

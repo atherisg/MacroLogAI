@@ -55,11 +55,28 @@
           }
         },
         "role": { "type": "string", "enum": ["admin", "client"] },
+        "isPremium": { "type": "boolean" },
+        "premiumExpiresAt": { "type": "string", "format": "date-time" },
         "currentStreakDays": { "type": "number" },
         "longestStreak": { "type": "number" },
-        "lastScoredDate": { "type": "string", "format": "date" }
+        "lastScoredDate": { "type": "string", "format": "date" },
+        "waterTarget": { "type": "number", "description": "Daily water target in ml" },
+        "micronutrientTargets": { "type": "object" }
       },
       "required": ["uid", "email"]
+    },
+    "WaterLog": {
+      "title": "Water Log",
+      "description": "A record of water intake",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "amountMl": { "type": "number" },
+        "source": { "type": "string", "enum": ["water", "drink", "food"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" }
+      },
+      "required": ["uid", "amountMl", "source", "timestamp", "date"]
     },
     "BodyMetric": {
       "title": "Body Metric",
@@ -85,6 +102,12 @@
         "protein": { "type": "number" },
         "carbs": { "type": "number" },
         "fat": { "type": "number" },
+        "aminoAcidTotals": { "type": "object" },
+        "micronutrients": { "type": "object" },
+        "proteinUtilizationScore": { "type": "number" },
+        "aiAminoAcidInsights": { "type": "string" },
+        "mpsTriggerStatus": { "type": "string", "enum": ["MPS_TRIGGERED", "BELOW_THRESHOLD"] },
+        "proteinQualityScore": { "type": "number" },
         "timestamp": { "type": "string", "format": "date-time" },
         "imageUrl": { "type": "string" },
         "sourceType": { "type": "string", "enum": ["text", "image", "label"] }
@@ -183,6 +206,54 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "startDate", "endDate", "avgCalories", "avgDietScore", "createdAt"]
+    },
+    "FoodItem": {
+      "title": "Food Item Cache",
+      "description": "AI-estimated food data cache",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "aminoAcidProfile": { "type": "object" },
+        "micronutrients": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "calories", "protein", "carbs", "fat", "aminoAcidProfile", "createdAt"]
+    },
+    "DailyNutritionInsights": {
+      "title": "Daily Nutrition Insights",
+      "description": "Daily analysis of nutrition patterns like protein distribution",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "proteinDistributionInsight": { "type": "string" },
+        "proteinDistributionRecommendation": { "type": "string" },
+        "mealProteinValues": { "type": "object" },
+        "micronutrientInsights": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "proteinDistributionInsight", "proteinDistributionRecommendation", "mealProteinValues", "createdAt"]
+    },
+    "DailyNutritionSummary": {
+      "title": "Daily Nutrition Summary",
+      "description": "Aggregated daily nutrition data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "micronutrients": { "type": "object" },
+        "waterIntakeMl": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "date", "calories", "protein", "carbs", "fat", "micronutrients", "waterIntakeMl", "createdAt"]
     }
   },
   "firestore": {
@@ -193,6 +264,10 @@
     "/meals/{mealId}": {
       "schema": "Meal",
       "description": "Logged meals"
+    },
+    "/foods/{foodId}": {
+      "schema": "FoodItem",
+      "description": "AI-estimated food data"
     },
     "/pantry/{itemId}": {
       "schema": "PantryItem",
@@ -221,6 +296,18 @@
     "/weekly_reports/{reportId}": {
       "schema": "WeeklyReport",
       "description": "Weekly nutrition performance summaries"
+    },
+    "/daily_nutrition_insights/{insightId}": {
+      "schema": "DailyNutritionInsights",
+      "description": "Daily nutrition pattern analysis"
+    },
+    "/daily_nutrition_summaries/{summaryId}": {
+      "schema": "DailyNutritionSummary",
+      "description": "Aggregated daily nutrition data"
+    },
+    "/water_logs/{logId}": {
+      "schema": "WaterLog",
+      "description": "Daily water intake logs"
     }
   }
 }

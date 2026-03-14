@@ -136,15 +136,6 @@ export default function MealHistory({ user }: { user: User }) {
                             <p className="font-bold text-sm">{meal.description}</p>
                             <span className="text-[8px] font-bold uppercase text-zinc-600 tracking-widest">{meal.sourceType} log</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-zinc-600 font-mono">{format(parseISO(meal.timestamp), 'h:mm a')}</span>
-                            <button 
-                              onClick={() => meal.id && handleDelete(meal.id)}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
                         </div>
                         <div className="mt-2 flex justify-between items-end">
                           <div className="flex gap-4">

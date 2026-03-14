@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { collection, query, where, onSnapshot, orderBy, getDocs, doc, updateDoc, limit } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { UserProfile, Meal, QuickMeal, WeeklyReport, Recipe, MacroEstimation } from '../types';
+import { UserProfile, Meal, QuickMeal, WeeklyReport, Recipe, MacroEstimation, WaterLog, MicronutrientProfile } from '../types';
 import { calculateDietScore } from '../utils/dietScore';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Zap, Plus, Sparkles, Repeat, BarChart3, Flame, Loader2, ChevronRight, Save, Check, Trash2 } from 'lucide-react';
+import { Zap, Plus, Sparkles, Repeat, BarChart3, Flame, Loader2, ChevronRight, Save, Check, Trash2, Lock, Droplets, Shield } from 'lucide-react';
 import { format, subDays, isBefore, startOfDay, endOfDay, differenceInDays, startOfWeek, endOfWeek, isSameDay, addDays } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import AnimatedNumber from '../components/AnimatedNumber';
@@ -15,9 +15,17 @@ import { clsx } from 'clsx';
 import { DietScoreWidget } from '../components/DietScoreWidget';
 import { StreakCalendar } from '../components/StreakCalendar';
 import { getMealSuggestions, getWeeklyInsights } from '../services/gemini';
-import { addDoc, deleteDoc } from 'firebase/firestore';
+import { addDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import AminoAcidCoverage from '../components/AminoAcidCoverage';
+import PremiumLocked from '../components/PremiumLocked';
+import { hasPremiumAccess } from '../utils/premium';
+import { AminoAcidProfile, DailyNutritionInsights } from '../types';
+import { analyzeProteinDistribution } from '../services/aminoAcidService';
+import { HydrationTracker } from '../components/HydrationTracker';
+import { MicronutrientIntelligence } from '../components/MicronutrientIntelligence';
+import { calculateHydrationTarget, calculateNutrientTargets } from '../services/nutrition';
 
-export default function Dashboard({ user, profile, onAddFood }: { user: User, profile: UserProfile, onAddFood?: (mealType: string) => void }) {
+export default function Dashboard({ user, profile, onAddFood, onNavigate }: { user: User, profile: UserProfile, onAddFood?: (mealType: string) => void, onNavigate?: (view: any) => void }) {
   const [todayMeals, setTodayMeals] = useState<Meal[]>([]);
   const [quickMeals, setQuickMeals] = useState<QuickMeal[]>([]);
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
@@ -25,6 +33,8 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [weeklyScores, setWeeklyScores] = useState<{date: Date, score: number}[]>([]);
   const [savingRecipeIdx, setSavingRecipeIdx] = useState<number | null>(null);
+  const [dailyInsights, setDailyInsights] = useState<DailyNutritionInsights | null>(null);
+  const [todayWaterLogs, setTodayWaterLogs] = useState<WaterLog[]>([]);
   
   const { playReward } = useAppSound();
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -117,19 +127,30 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
   useEffect(() => {
     const unsubQuick = onSnapshot(
       query(collection(db, 'quick_meals'), where('uid', '==', user.uid), orderBy('timesLogged', 'desc')),
-      (snap) => setQuickMeals(snap.docs.map(d => ({ id: d.id, ...d.data() } as QuickMeal)))
+      (snap) => setQuickMeals(snap.docs.map(d => ({ id: d.id, ...d.data() } as QuickMeal))),
+      (err) => console.error("Quick meals fetch failed:", err)
     );
 
     const unsubReport = onSnapshot(
       query(collection(db, 'weekly_reports'), where('uid', '==', user.uid), orderBy('createdAt', 'desc'), limit(1)),
       (snap) => {
         if (!snap.empty) setWeeklyReport({ id: snap.docs[0].id, ...snap.docs[0].data() } as WeeklyReport);
-      }
+      },
+      (err) => console.error("Weekly report fetch failed:", err)
+    );
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const unsubWater = onSnapshot(
+      query(collection(db, 'water_logs'), where('uid', '==', user.uid), where('timestamp', '>=', start.toISOString())),
+      (snap) => setTodayWaterLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as WaterLog))),
+      (err) => console.error("Water logs fetch failed:", err)
     );
 
     return () => {
       unsubQuick();
       unsubReport();
+      unsubWater();
     };
   }, [user.uid]);
 
@@ -333,7 +354,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
     const unsubMeals = onSnapshot(q, (snap) => {
       setTodayMeals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Meal)));
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'meals');
+      console.error("Meals fetch failed:", error);
     });
 
     return () => {
@@ -341,12 +362,98 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
     };
   }, [user.uid]);
 
+  useEffect(() => {
+    const q = query(
+      collection(db, 'daily_nutrition_insights'),
+      where('uid', '==', user.uid),
+      where('date', '==', today)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        setDailyInsights({ id: snap.docs[0].id, ...snap.docs[0].data() } as DailyNutritionInsights);
+      } else {
+        setDailyInsights(null);
+      }
+    }, (err) => {
+      console.error("Daily insights fetch failed:", err);
+      // Don't throw here as it's an async callback
+    });
+
+    return () => unsub();
+  }, [user.uid, today]);
+
+  useEffect(() => {
+    if (!hasPremiumAccess(profile) || todayMeals.length === 0) return;
+
+    const updateDailyInsights = async () => {
+      const distribution = analyzeProteinDistribution(todayMeals);
+      
+      const q = query(
+        collection(db, 'daily_nutrition_insights'),
+        where('uid', '==', user.uid),
+        where('date', '==', today)
+      );
+      
+      const snap = await getDocs(q);
+      const insightData = {
+        uid: user.uid,
+        date: today,
+        proteinDistributionInsight: distribution.insight,
+        proteinDistributionRecommendation: distribution.recommendation,
+        mealProteinValues: distribution.values,
+        proteinDistributionScore: distribution.score,
+        createdAt: new Date().toISOString()
+      };
+
+      if (snap.empty) {
+        await addDoc(collection(db, 'daily_nutrition_insights'), insightData);
+      } else {
+        const existingDoc = snap.docs[0];
+        const existingData = existingDoc.data();
+        
+        // Only update if values changed
+        const valuesChanged = JSON.stringify(existingData.mealProteinValues) !== JSON.stringify(distribution.values);
+        if (valuesChanged) {
+          await updateDoc(doc(db, 'daily_nutrition_insights', existingDoc.id), insightData);
+        }
+      }
+    };
+
+    const timer = setTimeout(updateDailyInsights, 2000); // Debounce updates
+    return () => clearTimeout(timer);
+  }, [user.uid, todayMeals, profile, today]);
+
   const totals = todayMeals.reduce((acc, meal) => ({
     calories: acc.calories + meal.calories,
     protein: acc.protein + meal.protein,
     carbs: acc.carbs + meal.carbs,
     fat: acc.fat + meal.fat
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  const dailyAminoAcids = todayMeals.reduce((acc, meal) => {
+    if (!meal.aminoAcidTotals) return acc;
+    const newAcc = { ...acc };
+    Object.keys(meal.aminoAcidTotals).forEach(key => {
+      const k = key as keyof AminoAcidProfile;
+      newAcc[k] = (newAcc[k] || 0) + (meal.aminoAcidTotals![k] || 0);
+    });
+    return newAcc;
+  }, {} as AminoAcidProfile);
+
+  const dailyMicronutrients = todayMeals.reduce((acc, meal) => {
+    if (!meal.micronutrients) return acc;
+    const newAcc = { ...acc };
+    Object.keys(meal.micronutrients).forEach(key => {
+      const k = key as keyof MicronutrientProfile;
+      newAcc[k] = (newAcc[k] || 0) + (meal.micronutrients![k] || 0);
+    });
+    return newAcc;
+  }, {} as MicronutrientProfile);
+
+  const totalWater = todayWaterLogs.reduce((acc, log) => acc + log.amountMl, 0);
+  const hydrationTarget = calculateHydrationTarget(profile);
+  const micronutrientTargets = calculateNutrientTargets(profile);
 
   const scoreResult = calculateDietScore(
     totals.protein, profile.proteinTarget,
@@ -373,7 +480,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
     { name: 'Fat', value: totals.fat * 9, color: '#fbbf24' }
   ];
 
-  const CircularProgress = ({ label, value, target, unit, color }: any) => {
+  const CircularProgress = ({ label, value, target, unit, color, precision = 0 }: any) => {
     const percentage = Math.min(100, (value / target) * 100);
     const radius = 36;
     const circumference = 2 * Math.PI * radius;
@@ -407,7 +514,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-sm font-black italic"><AnimatedNumber value={Math.round(value)} /></span>
+            <span className="text-sm font-black italic"><AnimatedNumber value={value} precision={precision} /></span>
             <span className="text-[10px] text-zinc-500 uppercase">{unit}</span>
           </div>
         </div>
@@ -471,18 +578,27 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
 
   // Simple AI Insight generation based on macros
   const getAIInsight = () => {
+    if (todayMeals.length === 0) return "Log your first meal to get personalized AI insights.";
+    
     const proteinDiff = profile.proteinTarget - totals.protein;
     if (proteinDiff > 20) {
-      return `You are ${Math.round(proteinDiff)}g short of your protein goal. Consider a protein shake or Greek yogurt.`;
+      return `You are ${Math.round(proteinDiff)}g short of your protein goal. Consider a high-protein snack like Greek yogurt or a shake to optimize muscle synthesis.`;
     }
+    
     const caloriesDiff = profile.calorieTarget - totals.calories;
     if (caloriesDiff > 300) {
-      return `You have ${Math.round(caloriesDiff)} calories remaining. A balanced snack could help you hit your targets.`;
+      return `You have ${Math.round(caloriesDiff)} calories remaining. A balanced meal with complex carbs and healthy fats would be ideal now.`;
     }
+    
     if (caloriesDiff < -100) {
-      return `You are slightly over your calorie target. Focus on hydration and light activity.`;
+      return `You've exceeded your calorie target by ${Math.round(Math.abs(caloriesDiff))}kcal. Focus on hydration and fiber-rich vegetables for the rest of the day.`;
     }
-    return "You're doing great today! Macros are looking balanced.";
+
+    if (dailyInsights?.proteinDistributionScore && dailyInsights.proteinDistributionScore < 80) {
+      return `Your protein distribution is currently ${dailyInsights.proteinDistributionScore}% optimized. Try to spread your protein more evenly across your next meals.`;
+    }
+
+    return "You're doing great today! Your macros and distribution are looking balanced and optimized.";
   };
 
   const handleGetSuggestions = async () => {
@@ -591,6 +707,21 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
     }
   };
 
+  const handleLogWater = async (amount: number, source: 'water' | 'drink' | 'food') => {
+    try {
+      await addDoc(collection(db, 'water_logs'), {
+        uid: user.uid,
+        amountMl: amount,
+        source,
+        timestamp: new Date().toISOString(),
+        date: format(new Date(), 'yyyy-MM-dd')
+      });
+      playReward();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'water_logs');
+    }
+  };
+
   const getStreakMilestone = (days: number) => {
     if (days >= 30) return "Elite Consistency";
     if (days >= 14) return "Nutrition Focused";
@@ -602,7 +733,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
   const milestone = getStreakMilestone(profile.currentStreakDays || 0);
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-8 pb-10">
       <div className="flex items-center justify-between px-2">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center text-primary">
@@ -643,10 +774,23 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
 
       <StreakCalendar scores={weeklyScores} />
 
+      {/* Hydration Tracker */}
+      <div className="mt-8 px-2">
+        <HydrationTracker 
+          current={totalWater} 
+          target={hydrationTarget} 
+          onLog={handleLogWater} 
+          isPremium={hasPremiumAccess(profile)} 
+        />
+      </div>
+
       {/* Smart Meal Suggestions */}
-      <div className="space-y-4">
+      <div className="space-y-4 mt-8">
         <div className="flex items-center justify-between px-2">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">What Should I Eat Next?</h3>
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-primary" size={16} />
+            <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Smart Meal Suggestions</h3>
+          </div>
           <button 
             onClick={handleGetSuggestions}
             disabled={loadingSuggestions}
@@ -674,19 +818,19 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
                 <div className="flex justify-between items-center bg-zinc-800/50 rounded-2xl p-3">
                   <div className="text-center">
                     <p className="text-[8px] font-bold uppercase text-zinc-500">Cals</p>
-                    <p className="text-xs font-bold">{s.macros.calories}</p>
+                    <p className="text-xs font-bold">{s.macros.calories.toFixed(0)}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-[8px] font-bold uppercase text-zinc-500">Prot</p>
-                    <p className="text-xs font-bold text-primary">{s.macros.protein}g</p>
+                    <p className="text-xs font-bold text-primary">{s.macros.protein.toFixed(1)}g</p>
                   </div>
                   <div className="text-center">
                     <p className="text-[8px] font-bold uppercase text-zinc-500">Carb</p>
-                    <p className="text-xs font-bold text-blue-400">{s.macros.carbs}g</p>
+                    <p className="text-xs font-bold text-blue-400">{s.macros.carbs.toFixed(1)}g</p>
                   </div>
                   <div className="text-center">
                     <p className="text-[8px] font-bold uppercase text-zinc-500">Fat</p>
-                    <p className="text-xs font-bold text-yellow-500">{s.macros.fat}g</p>
+                    <p className="text-xs font-bold text-yellow-500">{s.macros.fat.toFixed(1)}g</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -711,10 +855,19 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
             <p className="text-xs text-zinc-500 italic">"{getAIInsight()}"</p>
           </div>
         )}
+
+        {suggestions.length > 0 && getAIInsight() && (
+          <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3 mx-2">
+            <Sparkles size={16} className="text-primary shrink-0 mt-1" />
+            <p className="text-xs text-zinc-400 leading-relaxed italic">
+              {getAIInsight()}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Quick Meals */}
-      <div className="space-y-4">
+      <div className="space-y-4 mt-8">
         <div className="flex items-center justify-between px-2">
           <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Quick Meals</h3>
           <button 
@@ -731,7 +884,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
               <div>
                 <h4 className="font-bold text-sm text-white">{meal.mealName}</h4>
                 <p className="text-[10px] text-zinc-500 uppercase font-mono mt-0.5">
-                  {meal.calories}kcal • P:{meal.protein}g • C:{meal.carbs}g • F:{meal.fat}g
+                  {meal.calories.toFixed(0)}kcal • P:{meal.protein.toFixed(1)}g • C:{meal.carbs.toFixed(1)}g • F:{meal.fat.toFixed(1)}g
                 </p>
               </div>
               <button 
@@ -750,7 +903,7 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
 
       {/* Weekly Report */}
       {weeklyReport && (
-        <div className="space-y-4">
+        <div className="space-y-4 mt-8">
           <div className="flex items-center justify-between px-2">
             <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Weekly Nutrition Report</h3>
             <span className="text-[10px] font-bold text-zinc-600 uppercase">{weeklyReport.startDate} - {weeklyReport.endDate}</span>
@@ -782,29 +935,138 @@ export default function Dashboard({ user, profile, onAddFood }: { user: User, pr
               </div>
             </div>
 
-            <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3">
-              <Sparkles size={16} className="text-primary shrink-0 mt-1" />
-              <p className="text-xs text-zinc-400 leading-relaxed italic">
-                {weeklyReport.aiInsights}
-              </p>
-            </div>
+            {!hasPremiumAccess(profile) ? (
+              <div className="bg-zinc-800/50 border border-zinc-700 rounded-2xl p-4 flex flex-col items-center gap-3">
+                <div className="flex items-center gap-2 text-primary">
+                  <Lock size={12} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Premium Insight</span>
+                </div>
+                <p className="text-[10px] text-zinc-500 text-center">Upgrade to Premium to unlock AI-powered nutrition analysis.</p>
+                <button onClick={() => onNavigate?.('premium')} className="text-[10px] text-primary font-bold underline">Learn More</button>
+              </div>
+            ) : (
+              <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3">
+                <Sparkles size={16} className="text-primary shrink-0 mt-1" />
+                <p className="text-xs text-zinc-400 leading-relaxed italic">
+                  {weeklyReport.aiInsights}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* Daily Nutrition Summary */}
-      <div className="space-y-4">
+      <div className="space-y-4 mt-8">
         <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 px-2">Daily Nutrition</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <CircularProgress label="Calories" value={totals.calories} target={profile.calorieTarget} unit="kcal" color="#82D95D" />
-          <CircularProgress label="Protein" value={totals.protein} target={profile.proteinTarget} unit="g" color="#4ade80" />
-          <CircularProgress label="Carbs" value={totals.carbs} target={profile.carbsTarget} unit="g" color="#38bdf8" />
-          <CircularProgress label="Fat" value={totals.fat} target={profile.fatTarget} unit="g" color="#fbbf24" />
+          <CircularProgress label="Protein" value={totals.protein} target={profile.proteinTarget} unit="g" color="#4ade80" precision={1} />
+          <CircularProgress label="Carbs" value={totals.carbs} target={profile.carbsTarget} unit="g" color="#38bdf8" precision={1} />
+          <CircularProgress label="Fat" value={totals.fat} target={profile.fatTarget} unit="g" color="#fbbf24" precision={1} />
         </div>
       </div>
 
+      {/* Premium Smart Protein Distribution */}
+      <div className="space-y-4 mt-8">
+        <div className="flex items-center gap-2 px-2">
+          <BarChart3 className="text-primary" size={16} />
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Smart Protein Distribution</h3>
+        </div>
+        
+        {!hasPremiumAccess(profile) ? (
+          <PremiumLocked 
+            title="Smart Protein Distribution"
+            message="Analyze your protein intake timing and get personalized recommendations for muscle growth."
+            onUpgrade={() => onNavigate?.('premium')}
+          />
+        ) : dailyInsights ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-6 space-y-6">
+            <div className="grid grid-cols-4 gap-2">
+              {['breakfast', 'lunch', 'dinner', 'snack'].map(type => (
+                <div key={type} className="space-y-2">
+                  <div className="h-24 bg-zinc-800/50 rounded-xl relative overflow-hidden flex flex-col justify-end">
+                    <motion.div 
+                      initial={{ height: 0 }}
+                      animate={{ height: `${Math.min((dailyInsights.mealProteinValues[type] || 0) / 50 * 100, 100)}%` }}
+                      className={clsx(
+                        "w-full rounded-t-lg",
+                        (dailyInsights.mealProteinValues[type] || 0) >= 20 && (dailyInsights.mealProteinValues[type] || 0) <= 40 
+                          ? "bg-primary" : "bg-zinc-700"
+                      )}
+                    />
+                  </div>
+                  <p className="text-[8px] font-bold uppercase text-zinc-500 text-center truncate">{type}</p>
+                  <p className="text-[10px] font-black text-white text-center">{Math.round(dailyInsights.mealProteinValues[type] || 0)}g</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3 pt-4 border-t border-zinc-800">
+              <div className="flex gap-3">
+                <Sparkles size={16} className="text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-xs text-zinc-300 leading-relaxed font-medium">
+                    {dailyInsights.proteinDistributionInsight}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 leading-relaxed italic">
+                    {dailyInsights.proteinDistributionRecommendation}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center">
+            <p className="text-zinc-500 text-xs italic">Log your meals to see your protein distribution analysis.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Premium Amino Acid Coverage */}
+      <div className="space-y-4 mt-8">
+        <div className="flex items-center gap-2 px-2">
+          <Zap className="text-primary" size={16} />
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Amino Acid Coverage</h3>
+        </div>
+        {!hasPremiumAccess(profile) ? (
+          <PremiumLocked 
+            title="Amino Acid Coverage"
+            message="Track your daily essential amino acid intake and identify potential deficiencies."
+            onUpgrade={() => onNavigate?.('premium')}
+          />
+        ) : Object.keys(dailyAminoAcids).length > 0 ? (
+          <AminoAcidCoverage profile={dailyAminoAcids} weightKg={profile.weight || 70} />
+        ) : (
+          <div className="p-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] text-center">
+            <p className="text-zinc-500 text-xs italic">Log meals with protein to see your amino acid coverage.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Premium Micronutrient Intelligence */}
+      <div className="space-y-4 mt-8 px-2">
+        <div className="flex items-center gap-2">
+          <Shield className="text-primary" size={16} />
+          <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500">Micronutrient Intelligence</h3>
+        </div>
+        <MicronutrientIntelligence 
+          intake={dailyMicronutrients} 
+          targets={micronutrientTargets} 
+          isPremium={hasPremiumAccess(profile)} 
+        />
+        {hasPremiumAccess(profile) && dailyInsights?.micronutrientInsights && (
+          <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3">
+            <Sparkles size={16} className="text-primary shrink-0 mt-1" />
+            <p className="text-xs text-zinc-400 leading-relaxed italic">
+              {dailyInsights.micronutrientInsights}
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Today's Meals */}
-      <div className="space-y-4">
+      <div className="space-y-4 mt-8">
         <h3 className="text-sm font-bold uppercase tracking-widest text-zinc-500 px-2">Today's Meals</h3>
         <div className="space-y-4">
           <MealSection title="Breakfast" type="breakfast" meals={mealsByCategory.breakfast} />

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, signOut, deleteUser, updateEmail, updatePassword } from 'firebase/auth';
-import { doc, setDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, collection, addDoc, query, where, orderBy, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import confetti from 'canvas-confetti';
 import { 
   UserProfile, 
   ActivityLevel, 
@@ -40,7 +41,8 @@ import {
   Edit2,
   BrainCircuit,
   Activity,
-  HeartPulse
+  HeartPulse,
+  Star
 } from 'lucide-react';
 import MicroButton from '../components/MicroButton';
 import SupplementModal from '../components/SupplementModal';
@@ -186,6 +188,8 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
       dashboardWidgets: profile?.dashboardWidgets || ['macros', 'score', 'history', 'supplements', 'streak', 'analytics', 'ai'],
       createdAt: profile?.createdAt || new Date().toISOString(),
       role: profile?.role || 'client',
+      isPremium: profile?.isPremium ?? true,
+      premiumExpiresAt: profile?.premiumExpiresAt || undefined,
     };
 
     try {
@@ -775,6 +779,62 @@ const Profile = React.forwardRef(({ user, profile }: { user: User, profile: User
 
           {activeTab === 'account' && (
             <div className="space-y-10">
+              <div className="space-y-6">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Premium Subscription</label>
+                <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={clsx(
+                        "w-10 h-10 rounded-xl flex items-center justify-center",
+                        profile?.isPremium ? "bg-primary/20 text-primary" : "bg-zinc-800 text-zinc-500"
+                      )}>
+                        <Star size={20} className={profile?.isPremium ? "fill-primary" : ""} />
+                      </div>
+                      <div>
+                        <p className="font-bold uppercase tracking-tighter">
+                          {profile?.isPremium ? "MacroLog Premium" : "Free Plan"}
+                        </p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+                          {profile?.isPremium ? "Active Subscription" : "Limited Access"}
+                        </p>
+                      </div>
+                    </div>
+                    {profile?.isPremium && (
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold uppercase text-zinc-500">Expires</p>
+                        <p className="text-xs font-mono text-white">
+                          {profile.premiumExpiresAt ? format(new Date(profile.premiumExpiresAt), 'MMM dd, yyyy') : 'Never (Dev Mode)'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {!profile?.isPremium && (
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const userRef = doc(db, 'users', user.uid);
+                          await updateDoc(userRef, {
+                            isPremium: true,
+                            premiumExpiresAt: null
+                          });
+                          confetti({
+                            particleCount: 100,
+                            spread: 70,
+                            origin: { y: 0.6 }
+                          });
+                        } catch (error) {
+                          handleFirestoreError(error, OperationType.WRITE, 'users/' + user.uid);
+                        }
+                      }}
+                      className="w-full py-3 bg-primary text-black font-black uppercase tracking-widest rounded-xl text-xs hover:scale-[1.02] transition-transform"
+                    >
+                      Upgrade to Premium (Free)
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-6">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Data Management</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

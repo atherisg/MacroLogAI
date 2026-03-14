@@ -67,4 +67,17 @@
   .neon-glow {
     box-shadow: 0 0 20px rgba(130, 217, 93, 0.2);
   }
+
+  .markdown-body strong {
+    @apply font-bold text-primary;
+  }
+  .markdown-body p {
+    @apply mb-2;
+  }
+  .markdown-body ul {
+    @apply list-disc list-inside mb-2;
+  }
+  .markdown-body li {
+    @apply mb-1;
+  }
 }

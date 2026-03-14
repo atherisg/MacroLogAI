@@ -29,6 +29,7 @@ export default function NumericInput({ label, value, onChange, min = 0, max = 10
           type="number"
           min={min}
           max={max}
+          step={step}
           value={value}
           onChange={e => onChange(parseFloat(e.target.value) || min)}
           className="w-full h-12 bg-transparent px-4 outline-none text-white font-bold text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"

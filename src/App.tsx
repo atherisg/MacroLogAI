@@ -16,7 +16,8 @@ import {
   Camera,
   FileText,
   Zap,
-  Save
+  Save,
+  Star
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -34,6 +35,7 @@ import Supplements from './views/Supplements';
 import MealHistory from './views/MealHistory';
 import LogMeal from './views/LogMeal';
 import AIAssistant from './views/AIAssistant';
+import Premium from './views/Premium';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -45,7 +47,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loggingIn, setLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'profile' | 'pantry' | 'supplements' | 'history' | 'log' | 'ai'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'profile' | 'pantry' | 'supplements' | 'history' | 'log' | 'ai' | 'premium'>('dashboard');
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined>(undefined);
@@ -145,10 +147,10 @@ export default function App() {
       onClick={() => setCurrentView(id)}
       className={cn(
         "flex flex-col items-center justify-center gap-1 py-2 px-4 transition-all duration-300",
-        currentView === id ? "text-primary scale-110" : "text-zinc-500 hover:text-zinc-300"
+        currentView === id ? "text-primary scale-110 drop-shadow-[0_0_8px_var(--color-primary)]" : "text-zinc-500 hover:text-zinc-300"
       )}
     >
-      <Icon size={20} className={cn(currentView === id && "drop-shadow-[0_0_8px_rgba(130,217,93,0.5)]")} />
+      <Icon size={20} className={cn(currentView === id && "drop-shadow-[0_0_8px_var(--color-primary)]")} />
       <span className="text-[10px] font-bold uppercase tracking-tighter">{label}</span>
     </button>
   );
@@ -267,6 +269,21 @@ export default function App() {
               <h1 className="text-xl font-black tracking-tighter uppercase italic">MacroLog <span className="text-primary">AI</span></h1>
             </div>
             <div className="flex items-center gap-4">
+              {profile?.isPremium && (
+                <div className="hidden md:flex items-center gap-1 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full">
+                  <Star size={10} className="text-primary fill-primary" />
+                  <span className="text-[8px] font-black uppercase tracking-widest text-primary">Premium</span>
+                </div>
+              )}
+              {!profile?.isPremium && (
+                <button 
+                  onClick={() => setCurrentView('premium')}
+                  className="hidden md:flex items-center gap-1 px-3 py-1 bg-zinc-800 border border-zinc-700 rounded-full hover:border-primary/50 transition-colors"
+                >
+                  <Zap size={10} className="text-primary" />
+                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400">Upgrade</span>
+                </button>
+              )}
               {currentView === 'profile' && (
                 <button 
                   onClick={() => profileRef.current?.handleSave()} 
@@ -288,13 +305,14 @@ export default function App() {
           <main className="max-w-4xl mx-auto p-6">
             <AnimatePresence mode="wait">
               <PageTransition key={currentView}>
-                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} />}
+                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} onNavigate={setCurrentView} />}
                 {currentView === 'profile' && <Profile ref={profileRef} user={user} profile={profile} />}
                 {currentView === 'pantry' && <Pantry user={user} profile={profile!} />}
-                {currentView === 'supplements' && <Supplements user={user} />}
+                {currentView === 'supplements' && <Supplements user={user} profile={profile!} onUpgrade={() => setCurrentView('premium')} />}
                 {currentView === 'history' && <MealHistory user={user} />}
-                {currentView === 'log' && <LogMeal user={user} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} />}
+                {currentView === 'log' && <LogMeal user={user} profile={profile!} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} onNavigate={setCurrentView} />}
                 {currentView === 'ai' && <AIAssistant user={user} profile={profile!} />}
+                {currentView === 'premium' && <Premium user={user} isPremium={!!profile?.isPremium} />}
               </PageTransition>
             </AnimatePresence>
           </main>

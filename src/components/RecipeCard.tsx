@@ -47,19 +47,19 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ recipe, onLog, onEdit, o
         <div className="grid grid-cols-4 gap-2 py-3 border-y border-zinc-800/50">
           <div className="text-center">
             <p className="text-[8px] font-bold uppercase text-zinc-500">Cals</p>
-            <p className="font-bold text-sm">{recipe.macros.calories}</p>
+            <p className="font-bold text-sm">{recipe.macros.calories.toFixed(0)}</p>
           </div>
           <div className="text-center">
             <p className="text-[8px] font-bold uppercase text-zinc-500">Prot</p>
-            <p className="font-bold text-sm text-primary">{recipe.macros.protein}g</p>
+            <p className="font-bold text-sm text-primary">{recipe.macros.protein.toFixed(1)}g</p>
           </div>
           <div className="text-center">
             <p className="text-[8px] font-bold uppercase text-zinc-500">Carb</p>
-            <p className="font-bold text-sm text-primary/80">{recipe.macros.carbs}g</p>
+            <p className="font-bold text-sm text-primary/80">{recipe.macros.carbs.toFixed(1)}g</p>
           </div>
           <div className="text-center">
             <p className="text-[8px] font-bold uppercase text-zinc-500">Fat</p>
-            <p className="font-bold text-sm text-primary/60">{recipe.macros.fat}g</p>
+            <p className="font-bold text-sm text-primary/60">{recipe.macros.fat.toFixed(1)}g</p>
           </div>
         </div>
 

@@ -50,6 +50,40 @@ service cloud.firestore {
     //   - fat: number (required)
     //   - createdAt: string (required, ISO 8601)
     //
+    // Collection: weekly_reports
+    // Document ID: {reportId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - startDate: string (required, YYYY-MM-DD)
+    //   - endDate: string (required, YYYY-MM-DD)
+    //   - avgCalories: number (required)
+    //   - avgDietScore: number (required)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // Collection: daily_nutrition_insights
+    // Document ID: {insightId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - date: string (required, YYYY-MM-DD)
+    //   - proteinDistributionInsight: string (required)
+    //   - proteinDistributionRecommendation: string (required)
+    //   - mealProteinValues: map (required)
+    //   - micronutrientInsights: string (optional)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // Collection: daily_nutrition_summaries
+    // Document ID: {summaryId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - date: string (required, YYYY-MM-DD)
+    //   - calories: number (required)
+    //   - protein: number (required)
+    //   - carbs: number (required)
+    //   - fat: number (required)
+    //   - micronutrients: map (required)
+    //   - waterIntakeMl: number (required)
+    //   - createdAt: string (required, ISO 8601)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -72,7 +106,7 @@ service cloud.firestore {
         (
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'client') == 'admin') ||
-          (request.auth.token.get('email', '').lower() == "coolpro9978@gmail.com" && request.auth.token.get('email_verified', false) == true)
+          (request.auth.token.email.lower() == "coolpro9978@gmail.com" && request.auth.token.email_verified == true)
         );
     }
 
@@ -94,14 +128,17 @@ service cloud.firestore {
     
     function isValidUser(data) {
       return data.uid is string && data.uid.size() < 128 &&
-             data.email is string && data.email.size() > 3 && data.email.size() < 256;
+             data.email is string && data.email.size() > 3 && data.email.size() < 256 &&
+             (!('isPremium' in data) || data.isPremium is bool);
     }
 
     function isValidMeal(data) {
       return data.uid is string && data.uid.size() < 128 &&
              data.description is string && data.description.size() > 0 && data.description.size() < 500 &&
              data.calories is number && data.calories >= 0 &&
-             data.timestamp is string && isValidDateTimeString(data.timestamp);
+             data.timestamp is string && isValidDateTimeString(data.timestamp) &&
+             (!('aminoAcidTotals' in data) || data.aminoAcidTotals is map) &&
+             (!('proteinUtilizationScore' in data) || data.proteinUtilizationScore is number);
     }
 
     function isValidMetric(data) {
@@ -150,6 +187,45 @@ service cloud.firestore {
              data.createdAt is string && isValidDateTimeString(data.createdAt);
     }
 
+    function isValidDailyNutritionInsight(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.date is string && isValidDateString(data.date) &&
+             data.proteinDistributionInsight is string && data.proteinDistributionInsight.size() < 2000 &&
+             data.proteinDistributionRecommendation is string && data.proteinDistributionRecommendation.size() < 2000 &&
+             data.mealProteinValues is map &&
+             (!('proteinDistributionScore' in data) || data.proteinDistributionScore is number) &&
+             (!('micronutrientInsights' in data) || data.micronutrientInsights is string) &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
+    function isValidDailyNutritionSummary(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.date is string && isValidDateString(data.date) &&
+             data.calories is number && data.protein is number &&
+             data.carbs is number && data.fat is number &&
+             data.micronutrients is map &&
+             data.waterIntakeMl is number &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
+    function isValidWaterLog(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.amountMl is number && data.amountMl > 0 && data.amountMl < 10000 &&
+             data.source in ['water', 'drink', 'food'] &&
+             data.timestamp is string && isValidDateTimeString(data.timestamp) &&
+             data.date is string && isValidDateString(data.date);
+    }
+
+    function isValidFoodItem(data) {
+      return data.name is string && data.name.size() > 0 &&
+             data.calories is number &&
+             data.protein is number &&
+             data.carbs is number &&
+             data.fat is number &&
+             data.aminoAcidProfile is map &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -162,11 +238,17 @@ service cloud.firestore {
     }
 
     match /meals/{mealId} {
-      allow read: if isDocOwner() || isAdmin();
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidMeal(request.resource.data);
-      allow update: if isDocOwner() && isValidMeal(request.resource.data) && 
-                      request.resource.data.uid == resource.data.uid;
-      allow delete: if isDocOwner() || isAdmin();
+      allow update: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin()) && isValidMeal(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    match /foods/{foodId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidFoodItem(request.resource.data);
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     match /metrics/{metricId} {
@@ -221,6 +303,28 @@ service cloud.firestore {
       allow read: if isDocOwner() || isAdmin();
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidWeeklyReport(request.resource.data);
       allow update: if isDocOwner() && isValidWeeklyReport(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /daily_nutrition_insights/{insightId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidDailyNutritionInsight(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin()) && isValidDailyNutritionInsight(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    match /daily_nutrition_summaries/{summaryId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidDailyNutritionSummary(request.resource.data);
+      allow update: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin()) && isValidDailyNutritionSummary(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    match /water_logs/{logId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidWaterLog(request.resource.data);
+      allow update: if isDocOwner() && isValidWaterLog(request.resource.data) && 
                       request.resource.data.uid == resource.data.uid;
       allow delete: if isDocOwner() || isAdmin();
     }
