@@ -38,7 +38,9 @@ import {
   Scale,
   TrendingUp,
   Edit2,
-  BrainCircuit
+  BrainCircuit,
+  Activity,
+  HeartPulse
 } from 'lucide-react';
 import MicroButton from '../components/MicroButton';
 import SupplementModal from '../components/SupplementModal';
@@ -46,9 +48,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 
-type Tab = 'profile' | 'nutrition' | 'supplements' | 'appearance' | 'notifications' | 'privacy' | 'account';
+import AnimatedNumber from '../components/AnimatedNumber';
+import MacroCircleBar from '../components/MacroCircleBar';
+import NumericInput from '../components/NumericInput';
+import CompactNumericInput from '../components/CompactNumericInput';
+import DataTile from '../components/DataTile';
+import SegmentedControl from '../components/SegmentedControl';
 
-export default function Profile({ user, profile }: { user: User, profile: UserProfile | null }) {
+type Tab = 'profile' | 'supplements' | 'appearance' | 'notifications' | 'privacy' | 'account';
+
+const Profile = React.forwardRef(({ user, profile }: { user: User, profile: UserProfile | null }, ref) => {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -201,6 +210,11 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
     }
   };
 
+  React.useImperativeHandle(ref, () => ({
+    handleSave,
+    saving
+  }));
+
   const handleExportData = async () => {
     try {
       const q = query(collection(db, 'meals'), where('uid', '==', user.uid));
@@ -267,7 +281,6 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
 
   const tabs: { id: Tab, icon: any, label: string }[] = [
     { id: 'profile', icon: UserIcon, label: 'Profile' },
-    { id: 'nutrition', icon: Target, label: 'Nutrition' },
     { id: 'supplements', icon: Pill, label: 'Supplements' },
     { id: 'appearance', icon: Palette, label: 'Appearance' },
     { id: 'notifications', icon: Bell, label: 'Alerts' },
@@ -282,23 +295,22 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
           <h2 className="text-3xl font-black italic uppercase tracking-tighter text-primary">Settings</h2>
           <p className="text-zinc-500 text-[10px] font-mono uppercase tracking-widest">Manage your profile and preferences</p>
         </div>
-        <div className="flex items-center gap-4">
-          <AnimatePresence>
-            {saveStatus === 'success' && (
-              <motion.span 
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0 }}
-                className="text-primary text-[10px] font-bold uppercase tracking-widest"
-              >
-                Saved successfully
-              </motion.span>
-            )}
-          </AnimatePresence>
-          <MicroButton onClick={handleSave} disabled={saving} className="px-6">
-            {saving ? 'Saving...' : <><Save size={18} /> Save Changes</>}
-          </MicroButton>
-        </div>
+      </div>
+
+      {/* Floating Save Button */}
+      <div className="fixed bottom-24 right-6 z-50 flex items-center gap-4">
+        <AnimatePresence>
+          {saveStatus === 'success' && (
+            <motion.span 
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-zinc-900 border border-primary/30 text-primary px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-primary/10"
+            >
+              Saved successfully
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Tabs Navigation */}
@@ -338,6 +350,7 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
                       src={formData.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
                       alt="Profile" 
                       className="w-24 h-24 rounded-[2rem] object-cover border-2 border-primary/20"
+                      referrerPolicy="no-referrer"
                     />
                     <button className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2rem]">
                       <Edit2 size={20} className="text-white" />
@@ -352,7 +365,7 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
                           value={formData.name}
                           onChange={e => setFormData({...formData, name: e.target.value})}
                           placeholder="Your Name"
-                          className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none text-white font-bold"
+                          className="w-full h-12 bg-zinc-900/50 border border-zinc-800 rounded-xl px-4 focus:border-primary outline-none text-white font-bold"
                         />
                       </div>
                       <div className="space-y-2">
@@ -361,7 +374,7 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
                           type="email" 
                           value={user.email || ''}
                           disabled
-                          className="w-full bg-zinc-900/30 border border-zinc-800/50 rounded-xl p-3 text-zinc-500 cursor-not-allowed outline-none font-mono text-sm"
+                          className="w-full h-12 bg-zinc-900/30 border border-zinc-800/50 rounded-xl px-4 text-zinc-500 cursor-not-allowed outline-none font-mono text-sm"
                         />
                       </div>
                     </div>
@@ -371,75 +384,119 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
               </section>
 
               <section className="space-y-6">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-800 pb-2 block">Physical Metrics</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Age</label>
-                      <input
-                        type="number"
-                        value={formData.age}
-                        onChange={e => setFormData({...formData, age: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
+                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 border-b border-zinc-800 pb-2 block">Body Metrics & Nutrition Configuration</label>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Left Column: Inputs */}
+                  <div className="space-y-6">
+                    {/* Personal Information Card */}
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <UserIcon size={18} className="text-primary" />
+                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Personal Info</h3>
+                      </div>
+                      <div className="space-y-4">
+                        <NumericInput label="Age" value={formData.age} onChange={v => setFormData({...formData, age: v})} min={18} max={80} unit="yrs" />
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Gender</label>
+                          <div className="flex gap-2">
+                            {['male', 'female', 'other'].map(g => (
+                              <button
+                                key={g}
+                                onClick={() => setFormData({...formData, gender: g as Gender})}
+                                className={clsx(
+                                  "flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-colors border",
+                                  formData.gender === g ? "bg-primary text-black border-primary" : "bg-zinc-950/50 text-zinc-400 border-white/5 hover:border-zinc-600"
+                                )}
+                              >
+                                {g}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <NumericInput label="Height" value={formData.height} onChange={v => setFormData({...formData, height: v})} min={100} max={250} unit="cm" />
+                        <NumericInput label="Weight" value={formData.weight} onChange={v => setFormData({...formData, weight: v})} min={30} max={200} unit="kg" />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Gender</label>
-                      <select
-                        value={formData.gender}
-                        onChange={e => setFormData({...formData, gender: e.target.value as Gender})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      >
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Height (cm)</label>
-                      <input
-                        type="number"
-                        value={formData.height}
-                        onChange={e => setFormData({...formData, height: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Weight (kg)</label>
-                      <input
-                        type="number"
-                        value={formData.weight}
-                        onChange={e => setFormData({...formData, weight: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
+
+                    {/* Fitness Configuration Card */}
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md">
+                      <div className="flex items-center gap-2">
+                        <Activity size={18} className="text-primary" />
+                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Fitness Config</h3>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Nutrition Mode</label>
+                          <SegmentedControl 
+                            options={[{id: 'auto', label: 'Auto'}, {id: 'manual', label: 'Manual'}]} 
+                            value={formData.nutritionMode} 
+                            onChange={v => setFormData({...formData, nutritionMode: v as 'auto' | 'manual'})} 
+                          />
+                        </div>
+                        <NumericInput label="Activity Level" value={formData.activityLevel === 'sedentary' ? 1 : formData.activityLevel === 'lightly_active' ? 2 : formData.activityLevel === 'moderately_active' ? 3 : formData.activityLevel === 'very_active' ? 4 : 5} onChange={v => setFormData({...formData, activityLevel: v === 1 ? 'sedentary' : v === 2 ? 'lightly_active' : v === 3 ? 'moderately_active' : v === 4 ? 'very_active' : 'athlete'})} min={1} max={5} unit="level" />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-1">
-                        <p className="text-[10px] font-bold uppercase text-zinc-500">BMI</p>
-                        <p className="text-xl font-black text-primary">{bmiData.value}</p>
-                        <p className="text-[10px] font-bold uppercase text-zinc-400">{bmiData.category}</p>
+                  {/* Right Column: Outputs */}
+                  <div className="space-y-6">
+                    {/* Body Metrics Card */}
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
+                      <div className="flex items-center gap-2">
+                        <HeartPulse size={18} className="text-primary" />
+                        <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Body Metrics</h3>
                       </div>
-                      <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl space-y-1">
-                        <p className="text-[10px] font-bold uppercase text-zinc-500">Goal</p>
-                        <p className="text-sm font-black uppercase text-white">{formData.fitnessGoal.replace('_', ' ')}</p>
+                      <div className="grid grid-cols-3 gap-4">
+                        <DataTile label="BMI" value={bmiData.value} unit={bmiData.category} color={bmiData.category === 'Normal' ? 'text-emerald-400' : bmiData.category === 'Underweight' ? 'text-blue-400' : bmiData.category === 'Overweight' ? 'text-yellow-400' : 'text-red-400'} />
+                        <DataTile label="BMR" value={<AnimatedNumber value={targets.bmr} />} unit="kcal/day" />
+                        <DataTile label="TDEE" value={<AnimatedNumber value={targets.tdee} />} unit="kcal/day" />
                       </div>
                     </div>
-                    <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl flex items-center justify-between">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase text-zinc-500">Daily Calorie Target</p>
-                        <p className="text-2xl font-black text-primary">{targets.calorieTarget} kcal</p>
+
+                    {/* Nutrition Targets Card */}
+                    <div className="bg-zinc-900/20 border border-white/10 rounded-3xl p-6 space-y-6 backdrop-blur-md overflow-hidden">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Target size={18} className="text-primary" />
+                          <h3 className="text-sm font-bold uppercase tracking-tighter text-white">Nutrition Targets</h3>
+                        </div>
+                        <SegmentedControl 
+                          options={[{id: 'auto', label: 'Auto'}, {id: 'manual', label: 'Manual'}]} 
+                          value={formData.nutritionMode} 
+                          onChange={v => setFormData({...formData, nutritionMode: v as 'auto' | 'manual'})} 
+                        />
                       </div>
-                      <TrendingUp className="text-primary/20" size={32} />
+
+                      <div className="space-y-4">
+                        <div className="p-6 bg-zinc-950/30 rounded-2xl border border-white/5 flex flex-col items-center justify-center relative overflow-hidden">
+                          <MacroCircleBar 
+                            protein={formData.nutritionMode === 'manual' ? formData.proteinTarget : targets.proteinTarget}
+                            carbs={formData.nutritionMode === 'manual' ? formData.carbsTarget : targets.carbsTarget}
+                            fat={formData.nutritionMode === 'manual' ? formData.fatTarget : targets.fatTarget}
+                            calories={formData.nutritionMode === 'manual' ? formData.calorieTarget : targets.calorieTarget}
+                          />
+                          
+                          {formData.nutritionMode === 'manual' && (
+                            <div className="mt-4 flex items-center gap-2 z-10">
+                              <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Manual Kcal:</label>
+                              <CompactNumericInput value={formData.calorieTarget} onChange={v => setFormData({...formData, calorieTarget: v})} min={1000} max={5000} step={50} />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4">
+                          <DataTile label="Protein" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.proteinTarget} onChange={v => setFormData({...formData, proteinTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.proteinTarget} />} unit="g" color="text-emerald-500" />
+                          <DataTile label="Carbs" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.carbsTarget} onChange={v => setFormData({...formData, carbsTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.carbsTarget} />} unit="g" color="text-blue-500" />
+                          <DataTile label="Fat" value={formData.nutritionMode === 'manual' ? <CompactNumericInput value={formData.fatTarget} onChange={v => setFormData({...formData, fatTarget: v})} min={0} max={500} /> : <AnimatedNumber value={targets.fatTarget} />} unit="g" color="text-amber-500" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </section>
 
               {/* Weight History Chart */}
-              {metrics.length > 0 && (
+              {metrics && metrics.length > 0 && 
                 <div className="space-y-4">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Weight Trend</label>
                   <div className="h-48 w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-4">
@@ -470,113 +527,7 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
                     </ResponsiveContainer>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'nutrition' && (
-            <div className="space-y-8">
-              <div className="space-y-4">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Nutrition Mode</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setFormData({...formData, nutritionMode: 'auto'})}
-                    className={clsx(
-                      "p-6 rounded-3xl border flex flex-col items-start gap-2 transition-all text-left",
-                      formData.nutritionMode === 'auto' ? "bg-primary/10 border-primary" : "bg-zinc-900/50 border-zinc-800"
-                    )}
-                  >
-                    <div className={clsx("p-2 rounded-xl", formData.nutritionMode === 'auto' ? "bg-primary text-black" : "bg-zinc-800 text-zinc-500")}>
-                      <Zap size={20} />
-                    </div>
-                    <div className="space-y-1">
-                      <p className={clsx("font-bold uppercase tracking-tighter", formData.nutritionMode === 'auto' ? "text-primary" : "text-white")}>Auto Mode</p>
-                      <p className="text-[10px] text-zinc-500 leading-tight">AI manages your targets based on your metrics and goals.</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setFormData({...formData, nutritionMode: 'manual'})}
-                    className={clsx(
-                      "p-6 rounded-3xl border flex flex-col items-start gap-2 transition-all text-left",
-                      formData.nutritionMode === 'manual' ? "bg-primary/10 border-primary" : "bg-zinc-900/50 border-zinc-800"
-                    )}
-                  >
-                    <div className={clsx("p-2 rounded-xl", formData.nutritionMode === 'manual' ? "bg-primary text-black" : "bg-zinc-800 text-zinc-500")}>
-                      <Settings size={20} />
-                    </div>
-                    <div className="space-y-1">
-                      <p className={clsx("font-bold uppercase tracking-tighter", formData.nutritionMode === 'manual' ? "text-primary" : "text-white")}>Manual Mode</p>
-                      <p className="text-[10px] text-zinc-500 leading-tight">You have full control over your daily macro targets.</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {formData.nutritionMode === 'manual' && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="space-y-6"
-                >
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Daily Calories</label>
-                    <input
-                      type="number"
-                      value={formData.calorieTarget}
-                      onChange={e => setFormData({...formData, calorieTarget: parseInt(e.target.value)})}
-                      className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 text-xl font-black text-primary focus:border-primary outline-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Protein (g)</label>
-                      <input
-                        type="number"
-                        value={formData.proteinTarget}
-                        onChange={e => setFormData({...formData, proteinTarget: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Carbs (g)</label>
-                      <input
-                        type="number"
-                        value={formData.carbsTarget}
-                        onChange={e => setFormData({...formData, carbsTarget: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Fat (g)</label>
-                      <input
-                        type="number"
-                        value={formData.fatTarget}
-                        onChange={e => setFormData({...formData, fatTarget: parseInt(e.target.value)})}
-                        className="w-full bg-zinc-900/50 border border-zinc-800 rounded-xl p-3 focus:border-primary outline-none"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl flex items-center justify-between">
-                <div className="space-y-1">
-                  <p className="font-bold uppercase tracking-tighter">AI Macro Optimization</p>
-                  <p className="text-[10px] text-zinc-500">Automatically adjust targets weekly based on progress.</p>
-                </div>
-                <button
-                  onClick={() => setFormData({...formData, aiMacroOptimization: !formData.aiMacroOptimization})}
-                  className={clsx(
-                    "w-12 h-6 rounded-full p-1 transition-colors relative",
-                    formData.aiMacroOptimization ? "bg-primary" : "bg-zinc-800"
-                  )}
-                >
-                  <div className={clsx(
-                    "w-4 h-4 bg-white rounded-full transition-transform",
-                    formData.aiMacroOptimization ? "translate-x-6" : "translate-x-0"
-                  )} />
-                </button>
-              </div>
+              }
             </div>
           )}
 
@@ -885,7 +836,9 @@ export default function Profile({ user, profile }: { user: User, profile: UserPr
       </AnimatePresence>
     </div>
   );
-}
+});
+
+export default Profile;
 
 function clsx(...inputs: any[]) {
   return inputs.filter(Boolean).join(' ');

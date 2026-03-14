@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import MealEditModal from '../components/MealEditModal';
 import { Meal } from '../types';
 import { format, parseISO, isToday, isYesterday } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Utensils } from 'lucide-react';
+import { Trash2, Utensils, Edit2 } from 'lucide-react';
 import { useAppSound } from '../components/SoundProvider';
 
 export default function MealHistory({ user }: { user: User }) {
   const [meals, setMeals] = useState<Meal[]>([]);
-  const { playClick } = useAppSound();
+  const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const { playClick, playSuccess, playError } = useAppSound();
 
   useEffect(() => {
     const q = query(
@@ -32,6 +35,33 @@ export default function MealHistory({ user }: { user: User }) {
       await deleteDoc(doc(db, 'meals', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'meals/' + id);
+      playError();
+    }
+  };
+
+  const handleEdit = (meal: Meal) => {
+    setEditingMeal(meal);
+    setIsEditModalOpen(true);
+    playClick();
+  };
+
+  const handleSaveEdit = async (updatedMeal: Meal) => {
+    if (!updatedMeal.id) return;
+    try {
+      const mealRef = doc(db, 'meals', updatedMeal.id);
+      await updateDoc(mealRef, {
+        description: updatedMeal.description,
+        calories: updatedMeal.calories,
+        protein: updatedMeal.protein,
+        carbs: updatedMeal.carbs,
+        fat: updatedMeal.fat
+      });
+      playSuccess();
+      setIsEditModalOpen(false);
+      setEditingMeal(null);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, 'meals');
+      playError();
     }
   };
 
@@ -93,7 +123,7 @@ export default function MealHistory({ user }: { user: User }) {
                     >
                       {meal.imageUrl ? (
                         <div className="w-16 h-16 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0">
-                          <img src={meal.imageUrl} alt={meal.description} className="w-full h-full object-cover" />
+                          <img src={meal.imageUrl} alt={meal.description} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         </div>
                       ) : (
                         <div className="w-16 h-16 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 flex-shrink-0">
@@ -107,7 +137,7 @@ export default function MealHistory({ user }: { user: User }) {
                             <span className="text-[8px] font-bold uppercase text-zinc-600 tracking-widest">{meal.sourceType} log</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-zinc-600 font-mono">{format(parseISO(meal.timestamp), 'HH:mm')}</span>
+                            <span className="text-[10px] text-zinc-600 font-mono">{format(parseISO(meal.timestamp), 'h:mm a')}</span>
                             <button 
                               onClick={() => meal.id && handleDelete(meal.id)}
                               className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all"
@@ -116,22 +146,39 @@ export default function MealHistory({ user }: { user: User }) {
                             </button>
                           </div>
                         </div>
-                        <div className="mt-2 flex gap-4">
-                          <div className="text-center">
-                            <p className="text-[8px] font-bold uppercase text-zinc-500">Cals</p>
-                            <p className="text-xs font-bold">{meal.calories}</p>
+                        <div className="mt-2 flex justify-between items-end">
+                          <div className="flex gap-4">
+                            <div className="text-center">
+                              <p className="text-[8px] font-bold uppercase text-zinc-500">Cals</p>
+                              <p className="text-xs font-bold">{meal.calories}</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[8px] font-bold uppercase text-zinc-500">Prot</p>
+                              <p className="text-xs font-bold text-[#82D95D]">{meal.protein}g</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[8px] font-bold uppercase text-zinc-500">Carb</p>
+                              <p className="text-xs font-bold text-[#4ade80]">{meal.carbs}g</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[8px] font-bold uppercase text-zinc-500">Fat</p>
+                              <p className="text-xs font-bold text-[#22c55e]">{meal.fat}g</p>
+                            </div>
                           </div>
-                          <div className="text-center">
-                            <p className="text-[8px] font-bold uppercase text-zinc-500">Prot</p>
-                            <p className="text-xs font-bold text-[#82D95D]">{meal.protein}g</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-[8px] font-bold uppercase text-zinc-500">Carb</p>
-                            <p className="text-xs font-bold text-[#4ade80]">{meal.carbs}g</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-[8px] font-bold uppercase text-zinc-500">Fat</p>
-                            <p className="text-xs font-bold text-[#22c55e]">{meal.fat}g</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-600 font-mono">{format(parseISO(meal.timestamp), 'h:mm a')}</span>
+                            <button 
+                              onClick={() => handleEdit(meal)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-primary transition-all"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => meal.id && handleDelete(meal.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-500 transition-all"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -143,6 +190,14 @@ export default function MealHistory({ user }: { user: User }) {
           );
         })}
       </div>
+      {isEditModalOpen && editingMeal && (
+        <MealEditModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onSave={handleSaveEdit}
+          meal={editingMeal}
+        />
+      )}
     </div>
   );
 }

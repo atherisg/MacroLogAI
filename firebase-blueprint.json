@@ -54,7 +54,10 @@
             "streakNotificationsEnabled": { "type": "boolean" }
           }
         },
-        "role": { "type": "string", "enum": ["admin", "client"] }
+        "role": { "type": "string", "enum": ["admin", "client"] },
+        "currentStreakDays": { "type": "number" },
+        "longestStreak": { "type": "number" },
+        "lastScoredDate": { "type": "string", "format": "date" }
       },
       "required": ["uid", "email"]
     },
@@ -124,6 +127,62 @@
         "date": { "type": "string", "description": "YYYY-MM-DD for streak tracking" }
       },
       "required": ["uid", "supplementId", "timestamp", "date"]
+    },
+    "SavedRecipe": {
+      "title": "Saved Recipe",
+      "description": "A recipe saved by the user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "ingredients": { "type": "array", "items": { "type": "string" } },
+        "instructions": { "type": "array", "items": { "type": "string" } },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "title", "ingredients", "instructions", "calories", "protein", "carbs", "fat", "createdAt"]
+    },
+    "QuickMeal": {
+      "title": "Quick Meal",
+      "description": "A frequently logged meal for fast access",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "mealName": { "type": "string" },
+        "foods": { "type": "array", "items": { "type": "string" } },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fat": { "type": "number" },
+        "timesLogged": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "mealName", "calories", "protein", "carbs", "fat", "timesLogged", "createdAt"]
+    },
+    "WeeklyReport": {
+      "title": "Weekly Nutrition Report",
+      "description": "Summary of nutrition performance over 7 days",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "avgCalories": { "type": "number" },
+        "avgProtein": { "type": "number" },
+        "avgCarbs": { "type": "number" },
+        "avgFat": { "type": "number" },
+        "avgDietScore": { "type": "number" },
+        "daysProteinTargetMet": { "type": "number" },
+        "daysCalorieTargetMet": { "type": "number" },
+        "bestDietScore": { "type": "number" },
+        "worstDietScore": { "type": "number" },
+        "aiInsights": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "startDate", "endDate", "avgCalories", "avgDietScore", "createdAt"]
     }
   },
   "firestore": {
@@ -150,6 +209,18 @@
     "/metrics/{metricId}": {
       "schema": "BodyMetric",
       "description": "Historical body metrics"
+    },
+    "/saved_recipes/{recipeId}": {
+      "schema": "SavedRecipe",
+      "description": "User saved recipes"
+    },
+    "/quick_meals/{mealId}": {
+      "schema": "QuickMeal",
+      "description": "Frequently logged meals"
+    },
+    "/weekly_reports/{reportId}": {
+      "schema": "WeeklyReport",
+      "description": "Weekly nutrition performance summaries"
     }
   }
 }

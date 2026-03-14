@@ -1,34 +1,68 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { MacroEstimation, Recipe, UserProfile, Meal, RecipeFilters } from "../types";
+import { MacroEstimation, Recipe, UserProfile, Meal, RecipeFilters, WeeklyReport } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-export const estimateMealMacros = async (description: string): Promise<MacroEstimation> => {
+export const parseMealInput = async (description: string): Promise<{ cleanedName: string, items: string[] }> => {
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-lite-preview",
-    contents: `You are a nutrition calculator. Estimate calories, protein, carbs, and fat for the following meal: "${description}". Return ONLY a JSON object with keys: calories, protein, carbs, fat.`,
+    contents: `Analyze this meal description: "${description}". 
+    1. Provide a proper, clean, and descriptive combined name for the meal.
+    2. Split the meal into individual food items with their quantities/portions.
+    Return ONLY a JSON object with keys: cleanedName (string), items (array of strings).`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          calories: { type: Type.NUMBER },
-          protein: { type: Type.NUMBER },
-          carbs: { type: Type.NUMBER },
-          fat: { type: Type.NUMBER }
+          cleanedName: { type: Type.STRING },
+          items: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
-        required: ["calories", "protein", "carbs", "fat"]
+        required: ["cleanedName", "items"]
       }
     }
   });
-
-  return JSON.parse(response.text);
+  return JSON.parse(response.text || "{}");
 };
 
-export const analyzeMealImage = async (base64Image: string, isLabel: boolean): Promise<{ description: string, macros: MacroEstimation }> => {
+export interface ParsedItemMacro {
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+}
+
+export const estimateItemsMacros = async (items: string[]): Promise<ParsedItemMacro[]> => {
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-flash-lite-preview",
+    contents: `Estimate calories, protein, carbs, and fat for each of the following food items: ${JSON.stringify(items)}. 
+    Return an array of JSON objects, each with keys: name (string), calories (number), protein (number), carbs (number), fat (number).`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            calories: { type: Type.NUMBER },
+            protein: { type: Type.NUMBER },
+            carbs: { type: Type.NUMBER },
+            fat: { type: Type.NUMBER }
+          },
+          required: ["name", "calories", "protein", "carbs", "fat"]
+        }
+      }
+    }
+  });
+  return JSON.parse(response.text || "[]");
+};
+
+export const analyzeMealImageForItems = async (base64Image: string, isLabel: boolean): Promise<{ cleanedName: string, items: string[] }> => {
   const prompt = isLabel 
-    ? "Extract nutrition information from this label. Return a description of the product and the macros (calories, protein, carbs, fat) per serving. If multiple servings, use per serving values."
-    : "Analyze this meal photo. Detect all visible food items, estimate portion sizes, and provide a combined description. Estimate total calories, protein, carbs, and fat for the entire meal shown.";
+    ? "Extract nutrition information from this label. Return a proper, clean product name and a list of items (usually just one item with its serving size)."
+    : "Analyze this meal photo. Detect all visible food items, estimate portion sizes. Provide a proper, clean combined name for the meal, and a list of individual food items with their quantities.";
 
   const response = await ai.models.generateContent({
     model: "gemini-3.1-flash-lite-preview",
@@ -46,24 +80,15 @@ export const analyzeMealImage = async (base64Image: string, isLabel: boolean): P
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          description: { type: Type.STRING },
-          macros: {
-            type: Type.OBJECT,
-            properties: {
-              calories: { type: Type.NUMBER },
-              protein: { type: Type.NUMBER },
-              carbs: { type: Type.NUMBER },
-              fat: { type: Type.NUMBER }
-            },
-            required: ["calories", "protein", "carbs", "fat"]
-          }
+          cleanedName: { type: Type.STRING },
+          items: { type: Type.ARRAY, items: { type: Type.STRING } }
         },
-        required: ["description", "macros"]
+        required: ["cleanedName", "items"]
       }
     }
   });
 
-  return JSON.parse(response.text);
+  return JSON.parse(response.text || "{}");
 };
 
 export const generateRecipesFromPantry = async (
@@ -85,6 +110,8 @@ export const generateRecipesFromPantry = async (
     - Dietary: ${filters.dietary.join(", ") || "None"}
     - Cuisine: ${filters.cuisine || "Any"}
     - Max Prep Time: ${filters.maxTime} minutes
+    - Meal Category: ${filters.mealType || "Standard Meal"}
+    - Additional Instructions: ${filters.customInstructions || "None"}
     
     Context:
     ${macroContext}
@@ -127,7 +154,7 @@ export const generateRecipesFromPantry = async (
     }
   });
 
-  return JSON.parse(response.text);
+  return JSON.parse(response.text || "[]");
 };
 
 export const getWeeklyCoaching = async (profile: UserProfile, meals: Meal[]): Promise<string> => {
@@ -165,5 +192,70 @@ export const chatWithAssistant = async (message: string, context: { profile: Use
     }
   });
 
-  return response.text;
+  return response.text || "I'm sorry, I couldn't generate a response.";
+};
+
+export const getMealSuggestions = async (remaining: MacroEstimation, profile: UserProfile): Promise<Recipe[]> => {
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-pro-preview",
+    contents: `The user has the following macros remaining for today: 
+    Calories: ${remaining.calories}kcal, Protein: ${remaining.protein}g, Carbs: ${remaining.carbs}g, Fat: ${remaining.fat}g.
+    User Goal: ${profile.fitnessGoal}.
+    
+    Suggest 3-5 meal ideas that help the user reach these targets. 
+    Focus on filling the gaps (e.g., if protein is low, suggest high-protein meals).
+    
+    Return a JSON array of objects with:
+    - title (string)
+    - ingredients (array of strings)
+    - instructions (array of strings)
+    - macros (object with calories, protein, carbs, fat)
+    - prepTime (string)
+    `,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+            instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            macros: {
+              type: Type.OBJECT,
+              properties: {
+                calories: { type: Type.NUMBER },
+                protein: { type: Type.NUMBER },
+                carbs: { type: Type.NUMBER },
+                fat: { type: Type.NUMBER }
+              }
+            },
+            prepTime: { type: Type.STRING }
+          },
+          required: ["title", "ingredients", "instructions", "macros", "prepTime"]
+        }
+      }
+    }
+  });
+
+  return JSON.parse(response.text || "[]");
+};
+
+export const getWeeklyInsights = async (reportData: Partial<WeeklyReport>, profile: UserProfile): Promise<string> => {
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-pro-preview",
+    contents: `Analyze this weekly nutrition report for a user with goal: ${profile.fitnessGoal}.
+    Averages: ${reportData.avgCalories}kcal, ${reportData.avgProtein}g Protein, ${reportData.avgCarbs}g Carbs, ${reportData.avgFat}g Fat.
+    Avg Diet Score: ${reportData.avgDietScore}/100.
+    Targets Met: Protein ${reportData.daysProteinTargetMet}/7 days, Calories ${reportData.daysCalorieTargetMet}/7 days.
+    Best Score: ${reportData.bestDietScore}, Worst Score: ${reportData.worstDietScore}.
+    
+    Provide 2-3 concise, actionable insights or encouraging comments.`,
+    config: {
+      systemInstruction: "You are a professional AI Nutrition Coach. Be concise, data-driven, and encouraging."
+    }
+  });
+
+  return response.text || "Keep up the great work!";
 };

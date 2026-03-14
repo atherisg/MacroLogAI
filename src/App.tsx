@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
@@ -11,7 +11,12 @@ import {
   Plus, 
   BrainCircuit,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  Settings,
+  Camera,
+  FileText,
+  Zap,
+  Save
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -41,8 +46,11 @@ export default function App() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'dashboard' | 'profile' | 'pantry' | 'supplements' | 'history' | 'log' | 'ai'>('dashboard');
-
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
+  const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack' | undefined>(undefined);
+  const profileRef = useRef<any>(null);
+  const [logMode, setLogMode] = useState<'text' | 'image'>('text');
 
   useEffect(() => {
     const timer = setTimeout(() => setShowOverride(true), 4000);
@@ -258,24 +266,96 @@ export default function App() {
               <Logo className="w-8 h-8 text-primary" />
               <h1 className="text-xl font-black tracking-tighter uppercase italic">MacroLog <span className="text-primary">AI</span></h1>
             </div>
-            <button onClick={handleLogout} className="text-zinc-500 hover:text-white transition-colors">
-              <LogOut size={20} />
-            </button>
+            <div className="flex items-center gap-4">
+              {currentView === 'profile' && (
+                <button 
+                  onClick={() => profileRef.current?.handleSave()} 
+                  disabled={profileRef.current?.saving}
+                  className="bg-primary text-black px-4 py-2 rounded-full font-bold uppercase tracking-widest text-[10px] flex items-center gap-2 hover:scale-105 transition-transform disabled:opacity-50"
+                >
+                  <Save size={14} /> Save
+                </button>
+              )}
+              <button onClick={() => setCurrentView('profile')} className={cn("transition-colors", currentView === 'profile' ? "text-primary" : "text-zinc-500 hover:text-white")}>
+                <Settings size={20} />
+              </button>
+              <button onClick={handleLogout} className="text-zinc-500 hover:text-white transition-colors">
+                <LogOut size={20} />
+              </button>
+            </div>
           </header>
 
-          <main className="max-w-2xl mx-auto p-6">
+          <main className="max-w-4xl mx-auto p-6">
             <AnimatePresence mode="wait">
               <PageTransition key={currentView}>
-                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} />}
-                {currentView === 'profile' && <Profile user={user} profile={profile} />}
+                {currentView === 'dashboard' && <Dashboard user={user} profile={profile!} onAddFood={(type) => { setSelectedMealType(type as any); setLogMode('text'); setCurrentView('log'); }} />}
+                {currentView === 'profile' && <Profile ref={profileRef} user={user} profile={profile} />}
                 {currentView === 'pantry' && <Pantry user={user} profile={profile!} />}
                 {currentView === 'supplements' && <Supplements user={user} />}
                 {currentView === 'history' && <MealHistory user={user} />}
-                {currentView === 'log' && <LogMeal user={user} onComplete={() => setCurrentView('dashboard')} />}
+                {currentView === 'log' && <LogMeal user={user} onComplete={() => setCurrentView('dashboard')} initialMealType={selectedMealType} initialSourceType={logMode} />}
                 {currentView === 'ai' && <AIAssistant user={user} profile={profile!} />}
               </PageTransition>
             </AnimatePresence>
           </main>
+
+          {/* Add Menu Overlay */}
+          <AnimatePresence>
+            {showAddMenu && (
+              <>
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setShowAddMenu(false)}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+                />
+                <motion.div 
+                  initial={{ opacity: 0, y: 100, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 100, scale: 0.9 }}
+                  className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-3"
+                >
+                  <button 
+                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
+                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                      <FileText size={16} className="text-primary" />
+                    </div>
+                    <span className="font-bold text-sm">Log Food</span>
+                  </button>
+                  <button 
+                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('image'); setCurrentView('log'); }}
+                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                      <Camera size={16} className="text-blue-500" />
+                    </div>
+                    <span className="font-bold text-sm">Scan Food</span>
+                  </button>
+                  <button 
+                    onClick={() => { setShowAddMenu(false); setSelectedMealType(undefined); setLogMode('text'); setCurrentView('log'); }}
+                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center">
+                      <Plus size={16} className="text-orange-500" />
+                    </div>
+                    <span className="font-bold text-sm">Add Recipe</span>
+                  </button>
+                  <button 
+                    onClick={() => { setShowAddMenu(false); setCurrentView('supplements'); }}
+                    className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-6 py-3 rounded-full hover:bg-zinc-800 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center">
+                      <Zap size={16} className="text-purple-500" />
+                    </div>
+                    <span className="font-bold text-sm">Log Supplement</span>
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
 
           <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/90 backdrop-blur-xl border-t border-zinc-800 px-2 py-2 flex items-center justify-around z-50">
             <NavItem id="dashboard" icon={LayoutDashboard} label="Home" />
@@ -283,10 +363,13 @@ export default function App() {
             <motion.button 
               whileHover={{ scale: 1.1, y: -10 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => setCurrentView('log')}
-              className="w-14 h-14 bg-primary rounded-full flex items-center justify-center -mt-8 shadow-lg shadow-primary/30 border-4 border-[#050505] transition-all"
+              onClick={() => setShowAddMenu(!showAddMenu)}
+              className={cn(
+                "w-14 h-14 rounded-full flex items-center justify-center -mt-8 shadow-lg border-4 border-[#050505] transition-all z-50",
+                showAddMenu ? "bg-zinc-800 text-white shadow-zinc-900/50 rotate-45" : "bg-primary text-black shadow-primary/30"
+              )}
             >
-              <Plus size={28} className="text-black" />
+              <Plus size={28} />
             </motion.button>
             <NavItem id="pantry" icon={Refrigerator} label="Pantry" />
             <NavItem id="ai" icon={BrainCircuit} label="AI Coach" />

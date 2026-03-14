@@ -1,5 +1,5 @@
-export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active';
-export type FitnessGoal = 'lose_fat' | 'maintain' | 'build_muscle';
+export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'athlete';
+export type FitnessGoal = 'lose_fat' | 'maintain' | 'build_muscle' | 'recomposition';
 export type Gender = 'male' | 'female' | 'other';
 export type NutritionMode = 'auto' | 'manual';
 export type ThemeType = 'dark' | 'light' | 'midnight' | 'forest' | 'ocean';
@@ -53,6 +53,9 @@ export interface UserProfile {
   createdAt: string;
   settings: UserSettings;
   role?: 'admin' | 'client';
+  currentStreakDays?: number;
+  longestStreak?: number;
+  lastScoredDate?: string;
 }
 
 export interface BodyMetric {
@@ -75,6 +78,7 @@ export interface Meal {
   timestamp: string;
   imageUrl?: string;
   sourceType: 'text' | 'image' | 'label';
+  mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
 }
 
 export interface PantryItem {
@@ -123,4 +127,43 @@ export interface RecipeFilters {
   dietary: string[];
   cuisine: string;
   maxTime: number;
+  mealType?: string;
+  customInstructions?: string;
+}
+
+export interface SavedRecipe extends Recipe {
+  id?: string;
+  uid: string;
+  createdAt: string;
+}
+
+export interface QuickMeal {
+  id?: string;
+  uid: string;
+  mealName: string;
+  foods: string[];
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  timesLogged: number;
+  createdAt: string;
+}
+
+export interface WeeklyReport {
+  id?: string;
+  uid: string;
+  startDate: string;
+  endDate: string;
+  avgCalories: number;
+  avgProtein: number;
+  avgCarbs: number;
+  avgFat: number;
+  avgDietScore: number;
+  daysProteinTargetMet: number;
+  daysCalorieTargetMet: number;
+  bestDietScore: number;
+  worstDietScore: number;
+  aiInsights: string;
+  createdAt: string;
 }

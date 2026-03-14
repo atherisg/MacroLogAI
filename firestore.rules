@@ -37,6 +37,19 @@ service cloud.firestore {
     //   - bmi: number (required)
     //   - date: string (required, YYYY-MM-DD)
     //
+    // Collection: saved_recipes
+    // Document ID: {recipeId}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - title: string (required)
+    //   - ingredients: list (required)
+    //   - instructions: list (required)
+    //   - calories: number (required)
+    //   - protein: number (required)
+    //   - carbs: number (required)
+    //   - fat: number (required)
+    //   - createdAt: string (required, ISO 8601)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -110,6 +123,33 @@ service cloud.firestore {
              data.date is string && isValidDateString(data.date);
     }
 
+    function isValidSavedRecipe(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.ingredients is list && data.instructions is list &&
+             data.calories is number && data.protein is number &&
+             data.carbs is number && data.fat is number &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
+    function isValidQuickMeal(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.mealName is string && data.mealName.size() > 0 && data.mealName.size() < 200 &&
+             data.calories is number && data.protein is number &&
+             data.carbs is number && data.fat is number &&
+             data.timesLogged is number &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
+    function isValidWeeklyReport(data) {
+      return data.uid is string && data.uid.size() < 128 &&
+             data.startDate is string && isValidDateString(data.startDate) &&
+             data.endDate is string && isValidDateString(data.endDate) &&
+             data.avgCalories is number &&
+             data.avgDietScore is number &&
+             data.createdAt is string && isValidDateTimeString(data.createdAt);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -158,6 +198,29 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && 
                       request.resource.data.name is string && request.resource.data.name.size() < 100;
       allow update: if isDocOwner() && request.resource.data.name is string && request.resource.data.name.size() < 100 && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /saved_recipes/{recipeId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidSavedRecipe(request.resource.data);
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.uid && resource.data.uid == request.auth.uid && isValidSavedRecipe(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+    }
+
+    match /quick_meals/{mealId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidQuickMeal(request.resource.data);
+      allow update: if isDocOwner() && isValidQuickMeal(request.resource.data) && 
+                      request.resource.data.uid == resource.data.uid;
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /weekly_reports/{reportId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && isValidWeeklyReport(request.resource.data);
+      allow update: if isDocOwner() && isValidWeeklyReport(request.resource.data) && 
                       request.resource.data.uid == resource.data.uid;
       allow delete: if isDocOwner() || isAdmin();
     }
